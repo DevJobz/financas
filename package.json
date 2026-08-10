@@ -1,0 +1,14 @@
+{
+  "name": "financas-casal",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Sistema de controle financeiro conjunto para casal, com login, auditoria e saldo acumulado entre meses.",
+  "scripts": {
+    "gerar-hash": "node scripts/gerar-hash.js"
+  },
+  "dependencies": {
+    "@netlify/blobs": "^7.2.0",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2"
+  }
+}
