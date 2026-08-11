@@ -108,6 +108,14 @@ button { font-family: inherit; }
   width: 38px; height: 38px; border-radius: 50%; border: none;
   background: transparent; color: var(--ink-soft); cursor: pointer;
   display: flex; align-items: center; justify-content: center; font-size: 18px;
+  flex-shrink: 0; /* ADICIONE ESTA LINHA para o botão nunca ser esmagado */
+}
+
+/* ADICIONE ESTE BLOCO ABAIXO DE .icon-btn */
+.icon-btn i {
+  font-size: 20px;
+  line-height: 1;
+  display: inline-block;
 }
 .icon-btn:hover { background: var(--surface-sunken); }
 
