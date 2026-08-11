@@ -6,7 +6,7 @@ const App = (() => {
     months: [],
     view: 'dashboard',
     dashboardMonthKey: null,
-    dashFilterPerson: 'todos', // Controle do filtro de pessoa na tela de Início
+    dashFilterPerson: 'todos',
     filterMonth: null,
     filterPerson: 'todos',
     filterType: 'todos',
@@ -156,7 +156,7 @@ const App = (() => {
     
     el('#btn-add-fab').addEventListener('click', () => openTransactionModal());
 
-    // DELEGADOR GLOBAL DE EVENTOS (COM CASCATA INTELIGENTE DE EXCLUSÃO)
+    // DELEGADOR GLOBAL DE EVENTOS
     el('#view-container').addEventListener('click', async (e) => {
       const btnEdit = e.target.closest('[data-edit]');
       if (btnEdit) openTransactionModal(btnEdit.dataset.edit);
@@ -271,7 +271,6 @@ const App = (() => {
 
     const cardsUsage = Utils.getCardsUsage(state.transactions, state.dashboardMonthKey, state.settings);
 
-    // Seleciona métricas a serem exibidas nos 3 cards com base no filtro de pessoa selecionado
     let saldoAnt, recMes, entTotais, despTotais, saldoRest;
     if (state.dashFilterPerson === 'todos' || !currentMonth.personMetrics[state.dashFilterPerson]) {
       saldoAnt = currentMonth.saldoInicial;
@@ -297,7 +296,6 @@ const App = (() => {
           <button class="icon-btn" data-dash-nav="1" style="background: var(--surface-sunken);"><i class="ti ti-chevron-right"></i></button>
         </div>
         
-        <!-- SELETOR DE FILTRO POR PESSOA NO INÍCIO -->
         <div style="margin-top: 14px;">
           <select id="dash-filter-person" onchange="App.setDashPerson(this.value)" style="height: 38px; font-size: 13px; padding: 0 14px; border-radius: 999px; background: var(--surface); border: 1.5px solid var(--line); font-weight: 600;">
             <option value="todos" ${state.dashFilterPerson === 'todos' ? 'selected' : ''}>Métricas: Casal (Todos)</option>
@@ -327,7 +325,7 @@ const App = (() => {
         </div>
       </section>
 
-      <!-- FEEDBACK VISUAL DOS CARTÕES DE CRÉDITO (COM DONO E LIMITE FUTURO EM CASCATA) -->
+      <!-- FEEDBACK VISUAL DOS CARTÕES DE CRÉDITO -->
       <section class="card">
         <div class="card-header">
           <h2><i class="ti ti-credit-card"></i> Cartões de Crédito (Limite Retido vs. Disponível)</h2>
@@ -404,7 +402,7 @@ const App = (() => {
         </div>
       </section>
 
-      <!-- DOIS GRÁFICOS LADO A LADO: CATEGORIAS GERAL vs. GASTOS POR PESSOA -->
+      <!-- DOIS GRÁFICOS LADO A LADO -->
       <section class="grid-2">
         <div class="card">
           <div class="card-header"><h2><i class="ti ti-chart-donut"></i> Gastos por Categoria (Geral)</h2></div>
@@ -416,7 +414,6 @@ const App = (() => {
         </div>
       </section>
 
-      <!-- GRÁFICO DE EVOLUÇÃO REC x GASTOS NOS ÚLTIMOS 6 MESES DO PERÍODO SELECIONADO -->
       <section class="card">
         <div class="card-header">
           <h2><i class="ti ti-chart-bar"></i> Evolução: Receitas x Gastos</h2>
@@ -547,14 +544,13 @@ const App = (() => {
     `;
   }
 
-  // ---------- TRANSACTION MODAL (COM DATA DEFAULT CONTEXTUAL AO MÊS SELECIONADO) ----------
+  // ---------- TRANSACTION MODAL ----------
 
   function openTransactionModal(editId) {
     const existing = editId ? state.transactions.find((t) => t.id === editId) : null;
     const type = existing ? existing.type : 'gasto';
     const categories = (state.settings && state.settings.categories && state.settings.categories[type]) || [];
 
-    // DATA CONTEXTUAL: Se está criando novo na aba Lançamentos, herda o 1º dia do mês visualizado
     let defaultDate = new Date().toISOString().slice(0, 10);
     if (!existing && state.view === 'lancamentos' && state.filterMonth) {
       if (state.filterMonth === Utils.currentMonthKey()) {
@@ -835,7 +831,7 @@ const App = (() => {
     `;
   }
 
-  // ---------- CONFIGURAÇÕES E FIXOS (COM DONO DO CARTÃO) ----------
+  // ---------- CONFIGURAÇÕES E FIXOS (COM EDIÇÃO DE CARTÃO E FIXO) ----------
 
   function viewConfig() {
     const s = state.settings || {};
@@ -862,7 +858,10 @@ const App = (() => {
                 <td>${f.description} <small>(${f.category})</small></td>
                 <td>${personName(f.person)}</td>
                 <td class="num">${Utils.fmtBRL(f.amount)}</td>
-                <td class="row-actions"><button type="button" class="icon-btn" onclick="App.deleteFixed(${i})"><i class="ti ti-trash"></i></button></td>
+                <td class="row-actions">
+                  <button type="button" class="icon-btn" onclick="App.openFixedModal(${i})" title="Editar Fixo"><i class="ti ti-edit"></i></button>
+                  <button type="button" class="icon-btn" onclick="App.deleteFixed(${i})" title="Excluir Fixo"><i class="ti ti-trash"></i></button>
+                </td>
               </tr>`).join('')}
               ${fixedEntries.length === 0 ? '<tr><td colspan="5" class="empty-state">Nenhum lançamento fixo cadastrado.</td></tr>' : ''}
             </tbody>
@@ -911,7 +910,10 @@ const App = (() => {
                 <td><span class="user-chip" style="--chip-color:${personColor(c.owner)}; font-size: 11px; padding: 2px 8px;">${personName(c.owner || 'u1')}</span></td>
                 <td class="num">${Utils.fmtBRL(c.limit)}</td>
                 <td class="num">Dia ${c.closeDay}</td>
-                <td class="row-actions"><button type="button" class="icon-btn" onclick="App.deleteCard(${i})"><i class="ti ti-trash"></i></button></td>
+                <td class="row-actions">
+                  <button type="button" class="icon-btn" onclick="App.openCardModal(${i})" title="Editar Cartão"><i class="ti ti-edit"></i></button>
+                  <button type="button" class="icon-btn" onclick="App.deleteCard(${i})" title="Excluir Cartão"><i class="ti ti-trash"></i></button>
+                </td>
               </tr>`).join('')}
             </tbody>
           </table>
@@ -967,6 +969,136 @@ const App = (() => {
         </button>
       </section>
     `;
+  }
+
+  // ---------- MODAL DE EDIÇÃO DE CARTÃO DE CRÉDITO ----------
+
+  function openCardModal(idx) {
+    const c = state.settings.cards[idx];
+    if (!c) return;
+    const people = (state.settings && state.settings.people) || [];
+
+    el('#modal-root').innerHTML = `
+      <div class="modal-overlay" id="modal-overlay">
+        <div class="modal-sheet">
+          <div class="modal-header">
+            <h2>Editar Cartão de Crédito</h2>
+            <button class="icon-btn" id="modal-close"><i class="ti ti-x"></i></button>
+          </div>
+          <form id="form-edit-card" class="form-grid">
+            <label>Nome do Cartão
+              <input type="text" id="edit-c-name" value="${c.name || ''}" required />
+            </label>
+            <label>Dono do Cartão
+              <select id="edit-c-owner">
+                ${people.map(p => `<option value="${p.id}" ${(c.owner || 'u1') === p.id ? 'selected' : ''}>${p.name}</option>`).join('')}
+              </select>
+            </label>
+            <label>Limite (R$)
+              <input type="number" step="0.01" id="edit-c-limit" value="${c.limit || 0}" required />
+            </label>
+            <label>Vencimento (Dia)
+              <input type="number" min="1" max="31" id="edit-c-day" value="${c.closeDay || 1}" required />
+            </label>
+            <div class="modal-actions" style="grid-column:1/-1; display:flex; justify-content:flex-end; gap:8px;">
+              <button type="button" class="btn btn-ghost" id="btn-cancel-modal">Cancelar</button>
+              <button type="submit" class="btn btn-primary">Salvar Alterações</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `;
+
+    el('#modal-close').addEventListener('click', closeModal);
+    el('#btn-cancel-modal').addEventListener('click', closeModal);
+    el('#modal-overlay').addEventListener('click', (e) => { if (e.target.id === 'modal-overlay') closeModal(); });
+
+    el('#form-edit-card').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const cards = [...(state.settings.cards || [])];
+      cards[idx] = {
+        ...cards[idx],
+        name: el('#edit-c-name').value.trim(),
+        owner: el('#edit-c-owner').value,
+        limit: parseFloat(el('#edit-c-limit').value) || 0,
+        closeDay: parseInt(el('#edit-c-day').value, 10) || 1
+      };
+      await saveSettings({ cards });
+      closeModal();
+    });
+  }
+
+  // ---------- MODAL DE EDIÇÃO DE LANÇAMENTO FIXO ----------
+
+  function openFixedModal(idx) {
+    const f = state.settings.fixedEntries[idx];
+    if (!f) return;
+    const people = (state.settings && state.settings.people) || [];
+    const categories = (state.settings && state.settings.categories && state.settings.categories[f.type]) || [];
+
+    el('#modal-root').innerHTML = `
+      <div class="modal-overlay" id="modal-overlay">
+        <div class="modal-sheet">
+          <div class="modal-header">
+            <h2>Editar Lançamento Fixo</h2>
+            <button class="icon-btn" id="modal-close"><i class="ti ti-x"></i></button>
+          </div>
+          <form id="form-edit-fixed" class="form-grid">
+            <label>Tipo
+              <select id="edit-f-type">
+                <option value="receita" ${f.type === 'receita' ? 'selected' : ''}>Receita</option>
+                <option value="gasto" ${f.type === 'gasto' ? 'selected' : ''}>Gasto</option>
+              </select>
+            </label>
+            <label>Categoria
+              <select id="edit-f-cat">
+                ${categories.map(c => `<option value="${c}" ${f.category === c ? 'selected' : ''}>${c}</option>`).join('')}
+              </select>
+            </label>
+            <label>Descrição
+              <input type="text" id="edit-f-desc" value="${f.description || ''}" required />
+            </label>
+            <label>Valor (R$)
+              <input type="number" step="0.01" id="edit-f-amount" value="${f.amount || 0}" required />
+            </label>
+            <label>Pessoa
+              <select id="edit-f-person">
+                ${people.map(p => `<option value="${p.id}" ${(f.person || 'u1') === p.id ? 'selected' : ''}>${p.name}</option>`).join('')}
+              </select>
+            </label>
+            <div class="modal-actions" style="grid-column:1/-1; display:flex; justify-content:flex-end; gap:8px;">
+              <button type="button" class="btn btn-ghost" id="btn-cancel-modal">Cancelar</button>
+              <button type="submit" class="btn btn-primary">Salvar Alterações</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `;
+
+    el('#modal-close').addEventListener('click', closeModal);
+    el('#btn-cancel-modal').addEventListener('click', closeModal);
+    el('#modal-overlay').addEventListener('click', (e) => { if (e.target.id === 'modal-overlay') closeModal(); });
+
+    el('#edit-f-type').addEventListener('change', (e) => {
+      const type = e.target.value;
+      const cats = (state.settings.categories && state.settings.categories[type]) || [];
+      el('#edit-f-cat').innerHTML = cats.map(c => `<option value="${c}">${c}</option>`).join('');
+    });
+
+    el('#form-edit-fixed').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fixedEntries = [...(state.settings.fixedEntries || [])];
+      fixedEntries[idx] = {
+        ...fixedEntries[idx],
+        type: el('#edit-f-type').value,
+        category: el('#edit-f-cat').value,
+        description: el('#edit-f-desc').value.trim(),
+        amount: parseFloat(el('#edit-f-amount').value) || 0,
+        person: el('#edit-f-person').value
+      };
+      await saveSettings({ fixedEntries });
+      closeModal();
+    });
   }
 
   function attachConfigHandlers() {
@@ -1074,7 +1206,16 @@ const App = (() => {
     renderView();
   }
 
-  return { init, changeDashMonth, setDashPerson, setFilter, deleteFixed, deleteCard };
+  return { 
+    init, 
+    changeDashMonth, 
+    setDashPerson, 
+    setFilter, 
+    deleteFixed, 
+    deleteCard, 
+    openCardModal, 
+    openFixedModal 
+  };
 })();
 
 document.addEventListener('DOMContentLoaded', App.init);
