@@ -27,43 +27,43 @@ const DEFAULT_SETTINGS = {
 
 exports.handler = async (event) => {
   const headers = cors();
+  if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers, body: '' };
 
-  if (event.httpMethod === 'OPTIONS') {
-    return { statusCode: 204, headers, body: '' };
+  try {
+    const user = verifyToken(event);
+    if (!user) return { statusCode: 401, headers, body: JSON.stringify({ error: 'Não autenticado' }) };
+
+    if (event.httpMethod === 'GET') {
+      const settings = await readJSON(STORE, KEY, DEFAULT_SETTINGS);
+      return { statusCode: 200, headers, body: JSON.stringify(settings) };
+    }
+
+    if (event.httpMethod === 'PUT') {
+      const before = await readJSON(STORE, KEY, DEFAULT_SETTINGS);
+      const data = JSON.parse(event.body || '{}');
+      const updated = { ...before, ...data };
+      await writeJSON(STORE, KEY, updated);
+
+      const log = await readJSON(STORE, AUDIT_KEY, []);
+      log.unshift({
+        id: crypto.randomUUID(),
+        timestamp: new Date().toISOString(),
+        userId: user.sub,
+        userName: user.name,
+        action: 'update',
+        entity: 'settings',
+        entityId: 'settings',
+        before,
+        after: updated,
+      });
+      await writeJSON(STORE, AUDIT_KEY, log.slice(0, 1000));
+
+      return { statusCode: 200, headers, body: JSON.stringify(updated) };
+    }
+
+    return { statusCode: 405, headers, body: JSON.stringify({ error: 'Método não permitido' }) };
+  } catch (error) {
+    // Isso transforma o crash 502 em um aviso amigável no seu painel!
+    return { statusCode: 500, headers, body: JSON.stringify({ error: error.message || 'Erro interno no servidor' }) };
   }
-
-  const user = verifyToken(event);
-  if (!user) {
-    return { statusCode: 401, headers, body: JSON.stringify({ error: 'Não autenticado' }) };
-  }
-
-  if (event.httpMethod === 'GET') {
-    const settings = await readJSON(STORE, KEY, DEFAULT_SETTINGS);
-    return { statusCode: 200, headers, body: JSON.stringify(settings) };
-  }
-
-  if (event.httpMethod === 'PUT') {
-    const before = await readJSON(STORE, KEY, DEFAULT_SETTINGS);
-    const data = JSON.parse(event.body || '{}');
-    const updated = { ...before, ...data };
-    await writeJSON(STORE, KEY, updated);
-
-    const log = await readJSON(STORE, AUDIT_KEY, []);
-    log.unshift({
-      id: crypto.randomUUID(),
-      timestamp: new Date().toISOString(),
-      userId: user.sub,
-      userName: user.name,
-      action: 'update',
-      entity: 'settings',
-      entityId: 'settings',
-      before,
-      after: updated,
-    });
-    await writeJSON(STORE, AUDIT_KEY, log.slice(0, 1000));
-
-    return { statusCode: 200, headers, body: JSON.stringify(updated) };
-  }
-
-  return { statusCode: 405, headers, body: JSON.stringify({ error: 'Método não permitido' }) };
 };

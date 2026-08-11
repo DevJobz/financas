@@ -579,7 +579,7 @@ const App = (() => {
       btn.classList.add('active');
       const newType = btn.dataset.tipo;
       el('#tx-type').value = newType;
-      const cats = (state.settings.categories && state.settings.categories[newType]) || [];
+      const cats = (state.settings && state.settings.categories && state.settings.categories[newType]) || [];
       el('#tx-category').innerHTML = cats.map((c) => `<option value="${c}">${c}</option>`).join('');
       el('#label-payment-method').style.display = newType === 'gasto' ? '' : 'none';
     }));
