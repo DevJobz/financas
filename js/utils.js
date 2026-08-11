@@ -21,7 +21,8 @@ const Utils = (() => {
   ];
 
   const monthLabel = (key) => {
-    const [y, m] = key.split('-');
+  if (!key) return '';
+  const [y, m] = key.split('-');
     return `${MONTH_NAMES[Number(m) - 1]} de ${y}`;
   };
 

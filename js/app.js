@@ -459,7 +459,7 @@ const App = (() => {
   // ---------- CONFIGURAÇÕES ----------
 
   function viewConfig() {
-    const s = state.settings;
+    const s = state.settings || {};
     const people = s.people || [];
     return `
       <section class="view-header"><h1>Ajustes</h1></section>
@@ -514,7 +514,7 @@ const App = (() => {
   function openTransactionModal(existing) {
     state.editingId = existing ? existing.id : null;
     const type = existing ? existing.type : 'gasto';
-    const categories = (state.settings.categories && state.settings.categories[type]) || [];
+    const categories = (state.settings && state.settings.categories && state.settings.categories[type]) || [];
 
     const modalRoot = el('#modal-root');
     modalRoot.innerHTML = `
