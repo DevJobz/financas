@@ -220,8 +220,14 @@ select:focus, input:focus { outline: none; border-color: var(--teal-500); }
 .modal-actions { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; margin-top: 6px; }
 
 /* ---------- TABLE ---------- */
+.table-wrap { overflow-x: auto; position: relative; }
+/* Trava a coluna de ações sempre visível no celular */
+.col-actions { position: sticky; right: 0; background: var(--surface); padding-left: 10px !important; box-shadow: -4px 0 10px rgba(0,0,0,0.02); }
 
-.table-wrap { overflow-x: auto; }
+/* ---------- DETAILS (NOVO) ---------- */
+details > summary { list-style: none; }
+details > summary::-webkit-details-marker { display: none; }
+details[open] summary i { transform: rotate(180deg); transition: 0.2s; }
 .data-table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .data-table th { text-align: left; padding: 10px 12px; color: var(--ink-faint); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.02em; border-bottom: 1.5px solid var(--line); }
 .data-table td { padding: 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }

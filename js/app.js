@@ -5,23 +5,28 @@ const App = (() => {
     settings: null,
     months: [],
     view: 'dashboard',
-    dashboardMonthKey: null, // Controle de navegação de meses no Início
+    dashboardMonthKey: null,
     filterMonth: null,
     filterPerson: 'todos',
     filterType: 'todos',
     editingId: null,
   };
 
-  const PAYMENT_METHODS = [
-    { id: 'dinheiro', label: 'Dinheiro' },
-    { id: 'debito', label: 'Débito' },
-    { id: 'cartao', label: 'Cartão de crédito' },
-    { id: 'pix', label: 'Pix' },
-    { id: 'transferencia', label: 'Transferência' },
-  ];
-
   function el(sel, root = document) { return root.querySelector(sel); }
   function els(sel, root = document) { return Array.from(root.querySelectorAll(sel)); }
+
+  // Retorna métodos de pagamento mesclando os fixos com os cartões do casal
+  function getPaymentMethods() {
+    const base = [
+      { id: 'dinheiro', label: 'Dinheiro/Conta' },
+      { id: 'debito', label: 'Débito' },
+      { id: 'pix', label: 'Pix' },
+      { id: 'transferencia', label: 'Transferência' }
+    ];
+    const cards = (state.settings && state.settings.cards) || [];
+    cards.forEach(c => base.push({ id: `card_${c.id}`, label: `Cartão: ${c.name}` }));
+    return base;
+  }
 
   // ---------- BOOTSTRAP ----------
 
@@ -50,14 +55,12 @@ const App = (() => {
     const [transactions, settings] = await Promise.all([Api.getTransactions(), Api.getSettings()]);
     state.transactions = transactions.sort((a, b) => a.date.localeCompare(b.date));
     state.settings = settings;
-    state.months = Utils.buildMonthlySummary(state.transactions);
+    state.months = Utils.buildMonthlySummary(state.transactions, state.settings);
   }
 
   let pollHandle = null;
   function startPolling() {
     if (pollHandle) clearInterval(pollHandle);
-    // Near-live sync: since two people may be using the app at once,
-    // refresh quietly every 25s so entries made on the other phone show up.
     pollHandle = setInterval(async () => {
       try {
         await loadData();
@@ -101,8 +104,10 @@ const App = (() => {
       const password = el('#login-pass').value;
       const btnText = el('#login-btn-text');
       const errorEl = el('#login-error');
+      
       errorEl.classList.add('hidden');
       btnText.textContent = 'Entrando...';
+      
       try {
         const { token, user } = await Api.login(username, password);
         Auth.saveSession(token, user);
@@ -144,28 +149,38 @@ const App = (() => {
     `;
 
     el('#btn-logout').addEventListener('click', Auth.logout);
+    
     els('.nav-item[data-view]').forEach((btn) =>
       btn.addEventListener('click', () => { state.view = btn.dataset.view; renderView(); })
     );
+    
     el('#btn-add-fab').addEventListener('click', () => openTransactionModal());
 
-    // COLE O DELEGADOR AQUI!
-    // Agora ele funciona porque o view-container já foi criado no innerHTML acima.
+    // Delegador Global de Eventos
     el('#view-container').addEventListener('click', async (e) => {
+      // Evento de Editar
       const btnEdit = e.target.closest('[data-edit]');
-      if(btnEdit) {
+      if (btnEdit) {
           openTransactionModal(btnEdit.dataset.edit);
       }
 
+      // Evento de Excluir
       const btnDelete = e.target.closest('[data-delete]');
-      if(btnDelete) {
-          if (!confirm('Tem certeza que deseja excluir?')) return;
+      if (btnDelete) {
+          if (!confirm('Tem certeza que deseja excluir este lançamento?')) return;
           try {
             await Api.deleteTransaction(btnDelete.dataset.delete);
             await loadData();
             renderView();
             showToast('Lançamento excluído.', 'success');
           } catch (err) { showToast(err.message, 'danger'); }
+      }
+
+      // Evento de Navegar para Auditoria
+      const btnAuditoria = e.target.closest('#btn-ver-auditoria, #btn-ir-auditoria');
+      if (btnAuditoria) {
+          state.view = 'auditoria';
+          renderView();
       }
     });
   }
@@ -180,26 +195,31 @@ const App = (() => {
     setActiveNav();
     const container = el('#view-container');
     if (!container) return;
+    
     const scrollY = window.scrollY;
+    
     if (state.view === 'dashboard') container.innerHTML = viewDashboard();
     else if (state.view === 'lancamentos') container.innerHTML = viewLancamentos();
     else if (state.view === 'historico') container.innerHTML = viewHistorico();
     else if (state.view === 'config') container.innerHTML = viewConfig();
     else if (state.view === 'auditoria') container.innerHTML = viewAuditoria();
 
-    attachViewHandlers();
+    if (state.view === 'config') attachConfigHandlers();
     if (state.view === 'dashboard') drawDashboardCharts();
     if (state.view === 'historico') drawHistoricoChart();
+    
     if (silent) window.scrollTo(0, scrollY);
   }
 
   function getPeople() {
     return (state.settings && state.settings.people) || [];
   }
+  
   function personName(id) {
     const p = getPeople().find((p) => p.id === id);
     return p ? p.name : 'Não identificado';
   }
+  
   function personColor(id) {
     const p = getPeople().find((p) => p.id === id);
     return p ? p.color : '#888780';
@@ -208,34 +228,23 @@ const App = (() => {
   // ---------- DASHBOARD ----------
 
   function viewDashboard() {
-    const months = state.months;
-    // Lógica de navegação de meses
     if(!state.dashboardMonthKey) state.dashboardMonthKey = Utils.currentMonthKey();
-    let currentIdx = months.findIndex(m => m.key === state.dashboardMonthKey);
-    
-    // Se não tem lançamentos nesse mês ainda, cria um mês virtual zerado
-    const currentMonth = currentIdx !== -1 ? months[currentIdx] : { key: state.dashboardMonthKey, receitas: 0, gastos: 0, saldoMes: 0, saldoFinal: 0, byPerson: {}, byPersonCard: {}, acerto: {} };
-    
-    const prevKey = currentIdx > 0 ? months[currentIdx - 1].key : null;
-    const nextKey = currentIdx !== -1 && currentIdx < months.length - 1 ? months[currentIdx + 1].key : null;
-
-    const limite = (state.settings && state.settings.creditCardLimit) || 0;
-    const usoCartao = Utils.currentCreditCardUsage(state.transactions, state.dashboardMonthKey);
-    const disponivel = limite - usoCartao;
+    let currentIdx = state.months.findIndex(m => m.key === state.dashboardMonthKey);
+    const currentMonth = currentIdx !== -1 ? state.months[currentIdx] : { key: state.dashboardMonthKey, receitas: 0, gastos: 0, saldoMes: 0, saldoFinal: 0, byPerson: {}, byPersonRenda: {}, byPersonCard: {}, acerto: {}, byCategoryPerson: {} };
 
     return `
       <section class="view-header" style="justify-content: center; text-align: center; flex-direction: column;">
         <h1 style="font-size: 20px; color: var(--ink-faint);">Visão Geral</h1>
         <div style="display: flex; align-items: center; gap: 16px; margin-top: 8px;">
-          <button class="icon-btn" onclick="App.changeDashMonth('${prevKey}')" ${!prevKey ? 'disabled' : ''}><i class="ti ti-chevron-left"></i></button>
+          <button class="icon-btn" onclick="App.changeDashMonth(-1)"><i class="ti ti-chevron-left"></i></button>
           <h2 style="font-size: 24px; min-width: 200px;">${Utils.monthLabel(state.dashboardMonthKey)}</h2>
-          <button class="icon-btn" onclick="App.changeDashMonth('${nextKey}')" ${!nextKey ? 'disabled' : ''}><i class="ti ti-chevron-right"></i></button>
+          <button class="icon-btn" onclick="App.changeDashMonth(1)"><i class="ti ti-chevron-right"></i></button>
         </div>
       </section>
 
       <section class="metrics-grid">
         <div class="metric-card ${currentMonth.saldoFinal >= 0 ? 'positive' : 'negative'}">
-          <span class="metric-label">Saldo Acumulado (Total)</span>
+          <span class="metric-label">Saldo Acumulado</span>
           <span class="metric-value">${Utils.fmtBRL(currentMonth.saldoFinal)}</span>
         </div>
         <div class="metric-card ${currentMonth.saldoMes >= 0 ? 'positive' : 'negative'}">
@@ -247,98 +256,108 @@ const App = (() => {
       ${currentMonth.acerto && currentMonth.acerto.valor > 0 ? `
       <section class="aviso aviso-warning" style="justify-content: center;">
         <i class="ti ti-scale"></i>
-        <span><strong>Acerto de contas:</strong> ${personName(currentMonth.acerto.devedor)} deve <strong>${Utils.fmtBRL(currentMonth.acerto.valor)}</strong> para ${personName(currentMonth.acerto.credor)} referente às contas em comum deste mês.</span>
+        <span><strong>Acerto:</strong> ${personName(currentMonth.acerto.devedor)} deve <strong>${Utils.fmtBRL(currentMonth.acerto.valor)}</strong> para ${personName(currentMonth.acerto.credor)}.</span>
       </section>` : ''}
 
       <section class="card">
         <div class="card-header"><h2><i class="ti ti-users"></i> Desempenho Individual</h2></div>
+        
+        <!-- Barra de Proporção de Renda -->
+        ${currentMonth.receitas > 0 ? `
+        <div style="margin-bottom: 20px;">
+          <p class="muted-small" style="margin-bottom: 6px;">Proporção da Renda Conjunta neste mês:</p>
+          <div style="display: flex; height: 12px; border-radius: 999px; overflow: hidden; background: var(--surface-sunken);">
+            ${getPeople().map(p => {
+              const val = currentMonth.byPersonRenda[p.id] || 0;
+              const pct = (val / currentMonth.receitas) * 100;
+              return pct > 0 ? `<div style="width: ${pct}%; background: ${p.color};" title="${p.name}: ${pct.toFixed(1)}%"></div>` : '';
+            }).join('')}
+          </div>
+        </div>` : ''}
+
         <div class="grid-2">
-          ${getPeople().map(p => `
-            <div style="border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 16px;">
-              <h3 style="margin-bottom: 12px; color: ${p.color};">${p.name}</h3>
-              <p style="display:flex; justify-content: space-between; font-size: 14px; margin-bottom: 8px;">
-                <span class="muted-small">Total pago:</span> <strong>${Utils.fmtBRL(currentMonth.byPerson[p.id] || 0)}</strong>
-              </p>
-              <p style="display:flex; justify-content: space-between; font-size: 14px;">
-                <span class="muted-small">Fatura (Cartão):</span> <strong>${Utils.fmtBRL(currentMonth.byPersonCard[p.id] || 0)}</strong>
-              </p>
-            </div>
-          `).join('')}
+          ${getPeople().map(p => {
+            const myCats = (currentMonth.byCategoryPerson && currentMonth.byCategoryPerson[p.id]) || {};
+            const catHtml = Object.entries(myCats).sort((a,b) => b[1]-a[1]).map(([c, v]) => `
+              <div style="display:flex; justify-content:space-between; font-size: 13px; padding: 4px 0; border-bottom: 1px dashed var(--line);">
+                <span class="muted-small">${c}</span> <strong>${Utils.fmtBRL(v)}</strong>
+              </div>
+            `).join('');
+
+            return `
+            <details class="person-details" style="border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px 16px;">
+              <summary style="cursor: pointer; outline: none; display: flex; justify-content: space-between; align-items: center; font-weight: 600; color: ${p.color};">
+                ${p.name}
+                <i class="ti ti-chevron-down muted-small"></i>
+              </summary>
+              <div style="margin-top: 12px;">
+                <p style="display:flex; justify-content: space-between; font-size: 14px; margin-bottom: 6px;">
+                  <span class="muted-small">Gasto Total:</span> <strong>${Utils.fmtBRL(currentMonth.byPerson[p.id] || 0)}</strong>
+                </p>
+                <p style="display:flex; justify-content: space-between; font-size: 14px; margin-bottom: 16px;">
+                  <span class="muted-small">Fatura Cartões:</span> <strong>${Utils.fmtBRL(currentMonth.byPersonCard[p.id] || 0)}</strong>
+                </p>
+                <p class="muted-small" style="text-transform: uppercase; font-size: 11px; font-weight: bold; margin-bottom: 4px;">Top Gastos</p>
+                ${catHtml || '<p class="muted-small" style="font-size:12px;">Nenhum gasto registrado.</p>'}
+              </div>
+            </details>
+          `}).join('')}
         </div>
       </section>
 
       <section class="grid-2">
         <div class="card">
-          <div class="card-header"><h2><i class="ti ti-chart-donut"></i> Gastos por categoria</h2></div>
+          <div class="card-header"><h2><i class="ti ti-chart-donut"></i> Gastos Gerais (Casal)</h2></div>
           <div class="chart-box"><canvas id="chart-categoria"></canvas></div>
         </div>
         <div class="card">
-          <div class="card-header"><h2><i class="ti ti-credit-card"></i> Cartão Geral</h2><span class="muted-small">Limite: ${Utils.fmtBRL(limite)}</span></div>
+          <div class="card-header"><h2><i class="ti ti-chart-bar"></i> Receitas x Gastos</h2></div>
           <div class="chart-box"><canvas id="chart-receitas-gastos"></canvas></div>
         </div>
       </section>
     `;
   }
 
-  function buildAvisos(currentMonth, saldoAtual, limite, usoCartao) {
-    const avisos = [];
-    if (saldoAtual < 0) {
-      avisos.push({ icon: 'ti-alert-triangle', tone: 'danger', text: 'O saldo acumulado do casal está negativo. Vale revisar os gastos do mês.' });
-    }
-    if (limite > 0 && usoCartao / limite >= 0.9) {
-      avisos.push({ icon: 'ti-credit-card-off', tone: 'danger', text: 'Vocês já usaram mais de 90% do limite do cartão de crédito neste mês.' });
-    } else if (limite > 0 && usoCartao / limite >= 0.7) {
-      avisos.push({ icon: 'ti-alert-circle', tone: 'warning', text: 'O uso do cartão de crédito já passou de 70% do limite.' });
-    }
-    if (currentMonth && currentMonth.receitas === 0) {
-      avisos.push({ icon: 'ti-cash-off', tone: 'warning', text: 'Nenhuma receita lançada este mês ainda. Não esqueçam de registrar o salário.' });
-    }
-    if (currentMonth && currentMonth.saldoMes < 0) {
-      avisos.push({ icon: 'ti-trending-down', tone: 'warning', text: 'Os gastos deste mês já superaram as receitas registradas até agora.' });
-    }
-    return avisos;
-  }
-
-  function avisoCard(a) {
-    return `<div class="aviso aviso-${a.tone}"><i class="ti ${a.icon}"></i><span>${a.text}</span></div>`;
+  function changeDashMonth(offset) {
+    let d = new Date(state.dashboardMonthKey + '-01T12:00:00');
+    d.setMonth(d.getMonth() + offset);
+    state.dashboardMonthKey = d.toISOString().slice(0, 7);
+    renderView();
   }
 
   function drawDashboardCharts() {
-    const currentKey = Utils.currentMonthKey();
-    const currentMonth = state.months.find((m) => m.key === currentKey) || { byCategory: {}, byPerson: {} };
-    Charts.evolutionChart('chart-evolucao', state.months);
-    Charts.incomeExpenseChart('chart-receitas-gastos', state.months);
+    const currentMonth = state.months.find(m => m.key === state.dashboardMonthKey) || { byCategory: {} };
+    Charts.incomeExpenseChart('chart-receitas-gastos', state.months.slice(-6));
     Charts.categoryChart('chart-categoria', currentMonth.byCategory || {});
-    Charts.personChart('chart-pessoa', currentMonth.byPerson || {}, getPeople());
   }
 
   // ---------- LANÇAMENTOS ----------
 
   function viewLancamentos() {
-    const monthOptions = state.months.map((m) => m.key).reverse();
+    const monthOptions = state.months.map(m => m.key).reverse();
     if (!monthOptions.includes(state.filterMonth)) monthOptions.unshift(state.filterMonth);
 
-    const filtered = state.transactions
-      .filter((t) => Utils.monthKey(t.date) === state.filterMonth)
-      .filter((t) => state.filterPerson === 'todos' || t.paidBy === state.filterPerson)
-      .filter((t) => state.filterType === 'todos' || t.type === state.filterType)
+    const filtered = state.months.find(m => m.key === state.filterMonth)?.items || [];
+    const list = filtered
+      .filter(t => state.filterPerson === 'todos' || t.paidBy === state.filterPerson)
+      .filter(t => state.filterType === 'todos' || t.type === state.filterType)
       .sort((a, b) => b.date.localeCompare(a.date));
 
     return `
       <section class="view-header">
         <h1>Lançamentos</h1>
-        <button class="btn btn-primary" id="btn-add-transacao"><i class="ti ti-plus"></i> Novo lançamento</button>
+        <button class="btn btn-primary" id="btn-add-transacao"><i class="ti ti-plus"></i> Novo</button>
       </section>
 
       <section class="filters">
-        <select id="filter-month">
+        <select id="filter-month" onchange="App.setFilter('month', this.value)">
           ${monthOptions.map((k) => `<option value="${k}" ${k === state.filterMonth ? 'selected' : ''}>${Utils.monthLabel(k)}</option>`).join('')}
         </select>
-        <select id="filter-person">
+        <select id="filter-person" onchange="App.setFilter('person', this.value)">
           <option value="todos">Todos</option>
           ${getPeople().map((p) => `<option value="${p.id}" ${state.filterPerson === p.id ? 'selected' : ''}>${p.name}</option>`).join('')}
         </select>
-        <select id="filter-type">
+        <select id="filter-type" onchange="App.setFilter('type', this.value)">
           <option value="todos" ${state.filterType === 'todos' ? 'selected' : ''}>Todos</option>
           <option value="receita" ${state.filterType === 'receita' ? 'selected' : ''}>Receitas</option>
           <option value="gasto" ${state.filterType === 'gasto' ? 'selected' : ''}>Gastos</option>
@@ -346,42 +365,212 @@ const App = (() => {
       </section>
 
       <section class="card">
-        ${filtered.length ? `
+        ${list.length ? `
         <div class="table-wrap">
           <table class="data-table">
             <thead>
-              <tr><th>Data</th><th>Categoria</th><th>Descrição</th><th>Quem</th><th>Forma</th><th class="num">Valor</th><th></th></tr>
+              <tr><th>Data</th><th>Categoria</th><th>Descrição</th><th>Quem</th><th>Forma</th><th class="num">Valor</th><th class="col-actions"></th></tr>
             </thead>
             <tbody>
-              ${filtered.map(rowTransacao).join('')}
+              ${list.map(rowTransacao).join('')}
             </tbody>
           </table>
-        </div>` : `<div class="empty-state"><i class="ti ti-receipt-off"></i><p>Nenhum lançamento neste mês ainda.</p></div>`}
+        </div>` : `<div class="empty-state"><i class="ti ti-receipt-off"></i><p>Nenhum registro encontrado.</p></div>`}
       </section>
     `;
+  }
+
+  function setFilter(type, val) {
+    if(type === 'month') state.filterMonth = val;
+    if(type === 'person') state.filterPerson = val;
+    if(type === 'type') state.filterType = val;
+    renderView();
   }
 
   function rowTransacao(t) {
     const sign = t.type === 'receita' ? '+' : '−';
     const cls = t.type === 'receita' ? 'positive' : 'negative';
-    const method = PAYMENT_METHODS.find((m) => m.id === t.paymentMethod);
+    const method = getPaymentMethods().find(m => m.id === t.paymentMethod);
+    
+    let desc = t.description || '—';
+    if(t.installmentLabel) desc += ` <span class="muted-small">(${t.installmentLabel})</span>`;
+    if(t.isThirdParty) desc += ` <br><small style="color:var(--warning)">[Terceiro: ${t.thirdPartyName || '?'} | Receber: ${Utils.fmtDate(t.thirdPartyDate)}]</small>`;
+    
+    // Bloqueia edição nativa de virtuais, exibe alerta se tentar (só para UI visual)
+    const btnHtml = t.isVirtual 
+      ? `<button class="icon-btn" onclick="alert('Isso é um lançamento Fixo automático. Para editá-lo neste mês, adicione um lançamento manual de mesma categoria e pessoa, ou mude o valor base em Ajustes.')"><i class="ti ti-lock"></i></button>`
+      : `<button class="icon-btn" data-edit="${t.id}" aria-label="Editar"><i class="ti ti-edit"></i></button>
+         <button class="icon-btn" data-delete="${t.id}" aria-label="Excluir"><i class="ti ti-trash"></i></button>`;
+
     return `
       <tr>
         <td>${Utils.fmtDate(t.date)}</td>
         <td>${t.category}</td>
-        <td>${t.description || '—'}</td>
+        <td>${desc}</td>
         <td><span class="dot" style="background:${personColor(t.paidBy)}"></span>${personName(t.paidBy)}</td>
         <td>${method ? method.label : '—'}</td>
         <td class="num ${cls}">${sign} ${Utils.fmtBRL(t.amount)}</td>
-        <td class="row-actions">
-          <button class="icon-btn" data-edit="${t.id}" aria-label="Editar"><i class="ti ti-edit"></i></button>
-          <button class="icon-btn" data-delete="${t.id}" aria-label="Excluir"><i class="ti ti-trash"></i></button>
-        </td>
+        <td class="row-actions col-actions">${btnHtml}</td>
       </tr>
     `;
   }
 
-  // ---------- HISTÓRICO ----------
+  // ---------- TRANSACTION MODAL ----------
+
+  function openTransactionModal(editId) {
+    const existing = editId ? state.transactions.find(t => t.id === editId) : null;
+    const type = existing ? existing.type : 'gasto';
+    const categories = (state.settings && state.settings.categories && state.settings.categories[type]) || [];
+
+    el('#modal-root').innerHTML = `
+      <div class="modal-overlay" id="modal-overlay">
+        <div class="modal-sheet">
+          <div class="modal-header">
+            <h2>${existing ? 'Editar lançamento' : 'Novo lançamento'}</h2>
+            <button class="icon-btn" id="modal-close"><i class="ti ti-x"></i></button>
+          </div>
+          <form id="form-transacao" class="form-grid">
+            <div class="segmented" id="tipo-segmented">
+              <button type="button" class="seg-btn ${type === 'gasto' ? 'active' : ''}" data-tipo="gasto">Gasto</button>
+              <button type="button" class="seg-btn ${type === 'receita' ? 'active' : ''}" data-tipo="receita">Receita</button>
+            </div>
+            <input type="hidden" id="tx-type" value="${type}" />
+            
+            <label>Data
+              <input type="date" id="tx-date" value="${existing ? existing.date : new Date().toISOString().slice(0, 10)}" required />
+            </label>
+            <label>Categoria
+              <select id="tx-category">
+                ${categories.map(c => `<option value="${c}" ${existing && existing.category === c ? 'selected' : ''}>${c}</option>`).join('')}
+              </select>
+            </label>
+            <label>Descrição
+              <input type="text" id="tx-desc" value="${existing ? existing.description || '' : ''}" />
+            </label>
+            <label>Valor (R$)
+              <input type="number" step="0.01" min="0" id="tx-amount" value="${existing ? existing.amount : ''}" required />
+            </label>
+            <label>Responsável
+              <select id="tx-paidby">
+                ${getPeople().map(p => `<option value="${p.id}" ${(existing ? existing.paidBy : state.user.id) === p.id ? 'selected' : ''}>${p.name}</option>`).join('')}
+              </select>
+            </label>
+            <label id="label-payment-method" style="display:${type === 'gasto' ? 'flex' : 'none'};">Forma de pagamento
+              <select id="tx-method">
+                ${getPaymentMethods().map(m => `<option value="${m.id}" ${existing && existing.paymentMethod === m.id ? 'selected' : ''}>${m.label}</option>`).join('')}
+              </select>
+            </label>
+            
+            ${!existing ? `
+            <div style="grid-column: 1 / -1; border-top: 1px solid var(--line); margin-top: 10px; padding-top: 10px;">
+              <label style="flex-direction: row; align-items: center; gap: 10px; margin-bottom: 12px;">
+                <input type="checkbox" id="tx-is-third" style="width: 20px; height: 20px;" />
+                É dívida ou reembolso de Terceiros?
+              </label>
+              <div id="third-party-fields" style="display:none; grid-template-columns: 1fr 1fr; gap: 14px; background: var(--surface-sunken); padding: 14px; border-radius: var(--radius-sm); margin-bottom: 12px;">
+                <label style="margin:0">Nome do Terceiro<input type="text" id="tx-third-name" placeholder="Ex: Irmão" /></label>
+                <label style="margin:0">Data prevista p/ receber<input type="date" id="tx-third-date" /></label>
+              </div>
+              <label id="label-installments">Parcelar em quantas vezes?
+                <input type="number" min="1" max="72" id="tx-installments" value="1" />
+              </label>
+            </div>
+            ` : ''}
+            
+            <div class="modal-actions" style="grid-column:1/-1;">
+              ${existing ? `<button type="button" class="btn btn-danger-ghost" id="btn-delete-inline"><i class="ti ti-trash"></i> Excluir</button>` : '<span></span>'}
+              <button type="submit" class="btn btn-primary">${existing ? 'Salvar alterações' : 'Adicionar'}</button>
+            </div>
+            <p id="tx-error" class="form-error hidden" style="grid-column:1/-1;"></p>
+          </form>
+        </div>
+      </div>
+    `;
+
+    el('#modal-close').addEventListener('click', closeModal);
+    el('#modal-overlay').addEventListener('click', (e) => { if (e.target.id === 'modal-overlay') closeModal(); });
+
+    if(!existing) {
+      el('#tx-is-third').addEventListener('change', (e) => {
+        el('#third-party-fields').style.display = e.target.checked ? 'grid' : 'none';
+      });
+    }
+
+    els('.seg-btn').forEach(btn => btn.addEventListener('click', () => {
+      els('.seg-btn').forEach(b => b.classList.remove('active')); 
+      btn.classList.add('active');
+      
+      const newType = btn.dataset.tipo; 
+      el('#tx-type').value = newType;
+      
+      const cats = (state.settings && state.settings.categories && state.settings.categories[newType]) || [];
+      el('#tx-category').innerHTML = cats.map(c => `<option value="${c}">${c}</option>`).join('');
+      el('#label-payment-method').style.display = newType === 'gasto' ? 'flex' : 'none';
+    }));
+
+    if (existing) {
+      el('#btn-delete-inline').addEventListener('click', async () => {
+        if (!confirm('Excluir este lançamento?')) return;
+        try { 
+          await Api.deleteTransaction(existing.id); 
+          closeModal(); 
+          await loadData(); 
+          renderView(); 
+          showToast('Lançamento excluído.', 'success'); 
+        } catch (e) { showToast(e.message, 'danger'); }
+      });
+    }
+
+    el('#form-transacao').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const payload = {
+        date: el('#tx-date').value, 
+        type: el('#tx-type').value, 
+        category: el('#tx-category').value,
+        description: el('#tx-desc').value.trim(), 
+        amount: parseFloat(el('#tx-amount').value),
+        paidBy: el('#tx-paidby').value, 
+        paymentMethod: el('#tx-type').value === 'gasto' ? el('#tx-method').value : null,
+      };
+      
+      if(!existing) {
+        payload.installments = parseInt(el('#tx-installments').value) || 1;
+        payload.isThirdParty = el('#tx-is-third').checked;
+        if(payload.isThirdParty) {
+          payload.thirdPartyName = el('#tx-third-name').value.trim();
+          payload.thirdPartyDate = el('#tx-third-date').value;
+        }
+      }
+
+      if (!payload.date || !payload.category || isNaN(payload.amount) || payload.amount <= 0) { 
+        el('#tx-error').textContent = 'Preencha os campos corretamente.'; 
+        el('#tx-error').classList.remove('hidden'); 
+        return; 
+      }
+      
+      try {
+        if (existing) { 
+          await Api.updateTransaction({ id: existing.id, ...payload }); 
+          showToast('Lançamento atualizado.', 'success'); 
+        } else { 
+          await Api.createTransaction(payload); 
+          showToast(payload.installments > 1 ? 'Parcelas geradas!' : 'Adicionado.', 'success'); 
+        }
+        closeModal(); 
+        await loadData(); 
+        renderView();
+      } catch (err) { 
+        el('#tx-error').textContent = err.message; 
+        el('#tx-error').classList.remove('hidden'); 
+      }
+    });
+  }
+
+  function closeModal() {
+    el('#modal-root').innerHTML = '';
+  }
+
+  // ---------- HISTÓRICO MENSAL ----------
 
   function viewHistorico() {
     const rows = [...state.months].reverse();
@@ -439,7 +628,6 @@ const App = (() => {
   }
 
   function viewAuditoria() {
-    // placeholder while async log loads
     setTimeout(viewAuditoriaAsync, 0);
     return `
       <section class="view-header"><h1>Histórico de alterações</h1></section>
@@ -452,7 +640,10 @@ const App = (() => {
 
   function renderAuditoria(log) {
     return `
-      <section class="view-header"><h1>Histórico de alterações</h1><p class="subtitle">Quem mexeu, o quê e quando.</p></section>
+      <section class="view-header">
+        <h1>Histórico de alterações</h1>
+        <p class="subtitle">Quem mexeu, o quê e quando.</p>
+      </section>
       <section class="card">
         ${log.length ? `
         <ul class="audit-list">
@@ -470,212 +661,203 @@ const App = (() => {
     `;
   }
 
-  // ---------- CONFIGURAÇÕES ----------
+  // ---------- CONFIGURAÇÕES E FIXOS ----------
 
   function viewConfig() {
     const s = state.settings || {};
     const people = s.people || [];
+    const cards = s.cards || [];
+    const fixedEntries = s.fixedEntries || [];
+
     return `
       <section class="view-header"><h1>Ajustes</h1></section>
+      
+      <section class="card">
+        <div class="card-header"><h2><i class="ti ti-pin"></i> Lançamentos Fixos Recorrentes</h2></div>
+        <p class="muted-small" style="margin-bottom:12px;">Cadastre salários, aluguéis e contas fixas. Eles serão preenchidos automaticamente todo mês.</p>
+        
+        <div class="table-wrap" style="margin-bottom:16px;">
+          <table class="data-table">
+            <thead>
+              <tr><th>Tipo</th><th>Descrição</th><th>Pessoa</th><th class="num">Valor</th><th></th></tr>
+            </thead>
+            <tbody>
+              ${fixedEntries.map((f, i) => `
+              <tr>
+                <td>${f.type === 'receita' ? 'Receita' : 'Gasto'}</td>
+                <td>${f.description} <small>(${f.category})</small></td>
+                <td>${personName(f.person)}</td>
+                <td class="num">${Utils.fmtBRL(f.amount)}</td>
+                <td class="row-actions"><button type="button" class="icon-btn" onclick="App.deleteFixed(${i})"><i class="ti ti-trash"></i></button></td>
+              </tr>`).join('')}
+              ${fixedEntries.length === 0 ? '<tr><td colspan="5" class="empty-state">Nenhum lançamento fixo cadastrado.</td></tr>' : ''}
+            </tbody>
+          </table>
+        </div>
+        
+        <form id="form-fixed" class="form-grid" style="background:var(--surface-sunken); padding:16px; border-radius:var(--radius-sm);">
+          <h3 style="grid-column:1/-1; font-size:14px; margin-bottom:8px;">Novo Lançamento Fixo</h3>
+          <label>Tipo
+            <select id="cfg-f-type">
+              <option value="receita">Receita</option>
+              <option value="gasto">Gasto</option>
+            </select>
+          </label>
+          <label>Categoria
+            <select id="cfg-f-cat">
+              ${(s.categories && s.categories.receita || []).map(c=>`<option value="${c}">${c}</option>`).join('')}
+            </select>
+          </label>
+          <label>Descrição
+            <input type="text" id="cfg-f-desc" required/>
+          </label>
+          <label>Valor (R$)
+            <input type="number" step="0.01" id="cfg-f-amount" required/>
+          </label>
+          <label>Pessoa
+            <select id="cfg-f-person">
+              ${people.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}
+            </select>
+          </label>
+          <button type="submit" class="btn btn-primary" style="align-self:end;">Adicionar Fixo</button>
+        </form>
+      </section>
 
       <section class="card">
-        <div class="card-header"><h2><i class="ti ti-credit-card"></i> Cartão de crédito</h2></div>
-        <form id="form-cartao" class="form-grid">
-          <label>Limite total do cartão
-            <input type="number" step="0.01" min="0" id="cfg-limite" value="${s.creditCardLimit || 0}" />
+        <div class="card-header"><h2><i class="ti ti-credit-card"></i> Cartões de Crédito</h2></div>
+        <div class="table-wrap" style="margin-bottom:16px;">
+          <table class="data-table">
+            <thead>
+              <tr><th>Cartão</th><th class="num">Limite</th><th class="num">Vencimento</th><th></th></tr>
+            </thead>
+            <tbody>
+              ${cards.map((c, i) => `
+              <tr>
+                <td>${c.name}</td>
+                <td class="num">${Utils.fmtBRL(c.limit)}</td>
+                <td class="num">Dia ${c.closeDay}</td>
+                <td class="row-actions"><button type="button" class="icon-btn" onclick="App.deleteCard(${i})"><i class="ti ti-trash"></i></button></td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+
+        <form id="form-card" class="form-grid" style="background:var(--surface-sunken); padding:16px; border-radius:var(--radius-sm);">
+          <label>Nome do Cartão
+            <input type="text" id="cfg-c-name" required/>
           </label>
-          <label>Dia de fechamento da fatura
-            <input type="number" min="1" max="31" id="cfg-fechamento" value="${s.creditCardCloseDay || 1}" />
+          <label>Limite (R$)
+            <input type="number" step="0.01" id="cfg-c-limit" required/>
           </label>
-          <button type="submit" class="btn btn-primary">Salvar</button>
+          <label>Vencimento (Dia)
+            <input type="number" min="1" max="31" id="cfg-c-day" required/>
+          </label>
+          <button type="submit" class="btn btn-primary" style="align-self:end;">Adicionar Cartão</button>
         </form>
       </section>
 
       <section class="card">
         <div class="card-header"><h2><i class="ti ti-users"></i> Quem é quem</h2></div>
-        <p class="muted-small">Cada pessoa faz login com seu próprio usuário; aqui você só define nome, papel e cor de identificação usados nos gráficos.</p>
-        <form id="form-pessoas" class="form-grid">
+        <p class="muted-small">As cores e os papéis definem as etiquetas nos gráficos.</p>
+        <form id="form-pessoas" class="form-grid" style="margin-top: 14px;">
           ${['u1', 'u2'].map((id, i) => {
             const p = people.find((p) => p.id === id) || { id, name: `Pessoa ${i + 1}`, role: '', color: i === 0 ? '#0F6E56' : '#D85A30' };
             return `
-              <div class="person-fields">
-                <label>Nome ${i === 0 ? state.user.id === id ? '(você)' : '' : ''}
-                  <input type="text" data-person-name="${id}" value="${p.name}" />
-                </label>
-                <label>Vínculo
-                  <input type="text" data-person-role="${id}" value="${p.role || ''}" placeholder="Ex: Servidor público, CLT" />
-                </label>
-                <label>Cor
-                  <input type="color" data-person-color="${id}" value="${p.color || '#0F6E56'}" />
-                </label>
-              </div>
-            `;
+            <div class="person-fields">
+              <label>Nome
+                <input type="text" data-person-name="${id}" value="${p.name}" />
+              </label>
+              <label>Vínculo
+                <input type="text" data-person-role="${id}" value="${p.role || ''}" />
+              </label>
+              <label>Cor
+                <input type="color" data-person-color="${id}" value="${p.color || '#0F6E56'}" />
+              </label>
+            </div>`;
           }).join('')}
-          <button type="submit" class="btn btn-primary">Salvar</button>
+          <button type="submit" class="btn btn-primary" style="grid-column:1/-1">Salvar Nomes e Cores</button>
         </form>
       </section>
-
+      
       <section class="card">
         <div class="card-header"><h2><i class="ti ti-history"></i> Auditoria</h2></div>
         <p class="muted-small">Veja tudo o que foi criado, editado ou excluído no sistema, com nome e horário.</p>
-        <button class="btn btn-ghost" id="btn-ir-auditoria"><i class="ti ti-list-search"></i> Ver histórico de alterações</button>
+        <button class="btn btn-ghost" id="btn-ir-auditoria" style="margin-top: 10px;">
+          <i class="ti ti-list-search"></i> Ver histórico de alterações
+        </button>
       </section>
     `;
   }
 
-  // ---------- TRANSACTION MODAL ----------
-
-  function openTransactionModal(editId) {
-    const existing = editId ? state.transactions.find(t => t.id === editId) : null;
-    state.editingId = existing ? existing.id : null;
-    const type = existing ? existing.type : 'gasto';
-    const categories = (state.settings && state.settings.categories && state.settings.categories[type]) || [];
-
-    const modalRoot = el('#modal-root');
-    modalRoot.innerHTML = `
-      <div class="modal-overlay" id="modal-overlay">
-        <div class="modal-sheet">
-          <div class="modal-header">
-            <h2>${existing ? 'Editar lançamento' : 'Novo lançamento'}</h2>
-            <button class="icon-btn" id="modal-close"><i class="ti ti-x"></i></button>
-          </div>
-          <form id="form-transacao" class="form-grid">
-            <div class="segmented" id="tipo-segmented">
-              <button type="button" class="seg-btn ${type === 'gasto' ? 'active' : ''}" data-tipo="gasto">Gasto</button>
-              <button type="button" class="seg-btn ${type === 'receita' ? 'active' : ''}" data-tipo="receita">Receita</button>
-            </div>
-            <input type="hidden" id="tx-type" value="${type}" />
-
-            <label>Data
-              <input type="date" id="tx-date" value="${existing ? existing.date : new Date().toISOString().slice(0, 10)}" required />
-            </label>
-
-            <label>Categoria
-              <select id="tx-category">
-                ${categories.map((c) => `<option value="${c}" ${existing && existing.category === c ? 'selected' : ''}>${c}</option>`).join('')}
-              </select>
-            </label>
-
-            <label>Descrição (Ex: Luz, Mercado, Gasolina Irmão)
-              <input type="text" id="tx-desc" value="${existing ? existing.description || '' : ''}" />
-            </label>
-
-            <label>Valor (R$)
-              <input type="number" step="0.01" min="0" id="tx-amount" value="${existing ? existing.amount : ''}" required />
-            </label>
-
-            <label>Responsável (${type === 'receita' ? 'Recebeu' : 'Pagou'})
-              <select id="tx-paidby">
-                ${getPeople().map((p) => `<option value="${p.id}" ${(existing ? existing.paidBy : state.user.id) === p.id ? 'selected' : ''}>${p.name}</option>`).join('')}
-              </select>
-            </label>
-
-            <label id="label-payment-method">Forma de pagamento
-              <select id="tx-method">
-                ${PAYMENT_METHODS.map((m) => `<option value="${m.id}" ${existing && existing.paymentMethod === m.id ? 'selected' : ''}>${m.label}</option>`).join('')}
-              </select>
-            </label>
-            
-            ${!existing ? `
-            <label style="flex-direction: row; align-items: center; gap: 10px; grid-column: 1 / -1;">
-              <input type="checkbox" id="tx-is-fixed" style="width: 20px; height: 20px;" />
-              Despesa/Receita Mensal Fixa (Salário, Aluguel, etc)
-            </label>
-
-            <label style="flex-direction: row; align-items: center; gap: 10px; grid-column: 1 / -1;">
-              <input type="checkbox" id="tx-is-third" style="width: 20px; height: 20px;" />
-              Dívida/Reembolso de Terceiros
-            </label>
-
-            <label id="label-installments" style="grid-column: 1 / -1;">Parcelar em quantas vezes?
-              <input type="number" min="1" max="72" id="tx-installments" value="1" />
-            </label>
-            ` : ''}
-
-            <div class="modal-actions">
-              ${existing ? `<button type="button" class="btn btn-danger-ghost" id="btn-delete-inline"><i class="ti ti-trash"></i> Excluir</button>` : '<span></span>'}
-              <button type="submit" class="btn btn-primary">${existing ? 'Salvar alterações' : 'Adicionar'}</button>
-            </div>
-            <p id="tx-error" class="form-error hidden"></p>
-          </form>
-        </div>
-      </div>
-    `;
-
-    // ... (Mantenha os event listeners do modal-close e segmented buttons originais) ...
-    el('#modal-close').addEventListener('click', closeModal);
-    el('#modal-overlay').addEventListener('click', (e) => { if (e.target.id === 'modal-overlay') closeModal(); });
-    els('.seg-btn').forEach((btn) => btn.addEventListener('click', () => {
-      els('.seg-btn').forEach((b) => b.classList.remove('active'));
-      btn.classList.add('active');
-      const newType = btn.dataset.tipo;
-      el('#tx-type').value = newType;
-      const cats = (state.settings && state.settings.categories && state.settings.categories[newType]) || [];
-      el('#tx-category').innerHTML = cats.map((c) => `<option value="${c}">${c}</option>`).join('');
-      el('#label-payment-method').style.display = newType === 'gasto' ? '' : 'none';
-    }));
+  function attachConfigHandlers() {
+    el('#cfg-f-type')?.addEventListener('change', (e) => {
+      const type = e.target.value;
+      const cats = (state.settings.categories && state.settings.categories[type]) || [];
+      el('#cfg-f-cat').innerHTML = cats.map(c => `<option value="${c}">${c}</option>`).join('');
+    });
     
-    // Tratamento de exclusão
-    if (existing) {
-      el('#btn-delete-inline').addEventListener('click', async () => {
-        if (!confirm('Excluir este lançamento?')) return;
-        try {
-          await Api.deleteTransaction(existing.id);
-          closeModal();
-          await loadData();
-          renderView();
-          showToast('Lançamento excluído.', 'success');
-        } catch (e) { showToast(e.message, 'danger'); }
-      });
-    }
-
-    el('#form-transacao').addEventListener('submit', async (e) => {
+    el('#form-fixed')?.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const payload = {
-        date: el('#tx-date').value,
-        type: el('#tx-type').value,
-        category: el('#tx-category').value,
-        description: el('#tx-desc').value.trim(),
-        amount: parseFloat(el('#tx-amount').value),
-        paidBy: el('#tx-paidby').value,
-        paymentMethod: el('#tx-type').value === 'gasto' ? el('#tx-method').value : null,
-      };
-      
-      if(!existing) {
-          payload.installments = parseInt(el('#tx-installments').value) || 1;
-          payload.isFixed = el('#tx-is-fixed').checked;
-          payload.isThirdParty = el('#tx-is-third').checked;
-      }
+      const fixedEntries = [...(state.settings.fixedEntries || [])];
+      fixedEntries.push({
+        id: crypto.randomUUID(), 
+        type: el('#cfg-f-type').value, 
+        category: el('#cfg-f-cat').value,
+        description: el('#cfg-f-desc').value.trim(), 
+        amount: parseFloat(el('#cfg-f-amount').value), 
+        person: el('#cfg-f-person').value
+      });
+      await saveSettings({ fixedEntries });
+    });
 
-      if (!payload.date || !payload.category || isNaN(payload.amount) || payload.amount <= 0) {
-        el('#tx-error').textContent = 'Preencha data, categoria e valor.';
-        el('#tx-error').classList.remove('hidden');
-        return;
-      }
-      try {
-        if (existing) {
-          await Api.updateTransaction({ id: existing.id, ...payload });
-          showToast('Atualizado.', 'success');
-        } else {
-          await Api.createTransaction(payload);
-          showToast(payload.installments > 1 ? 'Parcelas geradas!' : 'Adicionado.', 'success');
-        }
-        closeModal();
-        await loadData();
-        renderView();
-      } catch (err) {
-        el('#tx-error').textContent = err.message;
-        el('#tx-error').classList.remove('hidden');
-      }
+    el('#form-card')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const cards = [...(state.settings.cards || [])];
+      cards.push({
+        id: crypto.randomUUID(), 
+        name: el('#cfg-c-name').value.trim(),
+        limit: parseFloat(el('#cfg-c-limit').value), 
+        closeDay: parseInt(el('#cfg-c-day').value)
+      });
+      await saveSettings({ cards });
+    });
+
+    el('#form-pessoas')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const people = ['u1', 'u2'].map(id => ({
+        id, 
+        name: el(`[data-person-name="${id}"]`).value.trim() || id,
+        role: el(`[data-person-role="${id}"]`).value.trim(), 
+        color: el(`[data-person-color="${id}"]`).value,
+      }));
+      await saveSettings({ people });
     });
   }
 
-  function closeModal() {
-    el('#modal-root').innerHTML = '';
-    state.editingId = null;
+  async function saveSettings(partialUpdate) {
+    try {
+      state.settings = await Api.updateSettings(partialUpdate);
+      await loadData(); 
+      renderView(); 
+      showToast('Ajustes salvos com sucesso!', 'success');
+    } catch (err) { showToast(err.message, 'danger'); }
   }
 
-  // ---------- TOASTS ----------
+  async function deleteFixed(idx) {
+    if (!confirm('Deseja excluir este lançamento fixo?')) return;
+    const fixedEntries = [...state.settings.fixedEntries]; 
+    fixedEntries.splice(idx, 1);
+    await saveSettings({ fixedEntries });
+  }
+
+  async function deleteCard(idx) {
+    if (!confirm('Deseja excluir este cartão?')) return;
+    const cards = [...state.settings.cards]; 
+    cards.splice(idx, 1);
+    await saveSettings({ cards });
+  }
+
+  // ---------- TOASTS (Notificações) ----------
 
   function showToast(message, tone = 'success') {
     const root = el('#toast-root');
@@ -683,58 +865,16 @@ const App = (() => {
     toast.className = `toast toast-${tone}`;
     toast.innerHTML = `<i class="ti ${tone === 'success' ? 'ti-check' : 'ti-alert-triangle'}"></i><span>${message}</span>`;
     root.appendChild(toast);
+    
     setTimeout(() => toast.classList.add('show'), 10);
-    setTimeout(() => { toast.classList.remove('show'); setTimeout(() => toast.remove(), 300); }, 3500);
+    setTimeout(() => { 
+      toast.classList.remove('show'); 
+      setTimeout(() => toast.remove(), 300); 
+    }, 3500);
   }
 
-  // ---------- EVENT WIRING PER VIEW ----------
+  // ---------- FUNÇÕES EXPOSTAS PARA O HTML ----------
 
-  function attachViewHandlers() {
-    const addBtn = el('#btn-add-transacao');
-    if (addBtn) addBtn.addEventListener('click', () => openTransactionModal());
-
-    const fMonth = el('#filter-month');
-    if (fMonth) fMonth.addEventListener('change', () => { state.filterMonth = fMonth.value; renderView(); });
-    const fPerson = el('#filter-person');
-    if (fPerson) fPerson.addEventListener('change', () => { state.filterPerson = fPerson.value; renderView(); });
-    const fType = el('#filter-type');
-    if (fType) fType.addEventListener('change', () => { state.filterType = fType.value; renderView(); });
-
-    const verAuditoria = el('#btn-ver-auditoria') || el('#btn-ir-auditoria');
-    if (verAuditoria) verAuditoria.addEventListener('click', () => { state.view = 'auditoria'; renderView(); });
-
-    const formCartao = el('#form-cartao');
-    if (formCartao) formCartao.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      try {
-        const updated = await Api.updateSettings({
-          creditCardLimit: parseFloat(el('#cfg-limite').value) || 0,
-          creditCardCloseDay: parseInt(el('#cfg-fechamento').value, 10) || 1,
-        });
-        state.settings = updated;
-        showToast('Configurações do cartão salvas.', 'success');
-      } catch (err) { showToast(err.message, 'danger'); }
-    });
-
-    const formPessoas = el('#form-pessoas');
-    if (formPessoas) formPessoas.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const people = ['u1', 'u2'].map((id) => ({
-        id,
-        name: el(`[data-person-name="${id}"]`).value.trim() || id,
-        role: el(`[data-person-role="${id}"]`).value.trim(),
-        color: el(`[data-person-color="${id}"]`).value,
-      }));
-      try {
-        const updated = await Api.updateSettings({ people });
-        state.settings = updated;
-        renderView();
-        showToast('Informações do casal salvas.', 'success');
-      } catch (err) { showToast(err.message, 'danger'); }
-    });
-  }
-  
-  // Expõe a função de trocar o mês para o HTML chamar no onClick
   function changeDashMonth(key) {
       if(key && key !== 'null') {
           state.dashboardMonthKey = key;
@@ -742,7 +882,7 @@ const App = (() => {
       }
   }
 
-  return { init, changeDashMonth };
+  return { init, changeDashMonth, setFilter, deleteFixed, deleteCard };
 })();
 
 document.addEventListener('DOMContentLoaded', App.init);

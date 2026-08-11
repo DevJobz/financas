@@ -7,21 +7,17 @@ const KEY = 'settings.json';
 const AUDIT_KEY = 'audit.json';
 
 const DEFAULT_SETTINGS = {
-  creditCardLimit: 0,
-  creditCardCloseDay: 1,
   people: [
     { id: 'u1', name: 'Pessoa 1', role: 'Servidor Público', color: '#0F6E56' },
     { id: 'u2', name: 'Pessoa 2', role: 'CLT', color: '#D85A30' },
   ],
+  cards: [
+    { id: 'card_1', name: 'Cartão Principal', limit: 0, closeDay: 1 }
+  ],
+  fixedEntries: [],
   categories: {
-    receita: [
-      'Salário', '13º Salário', 'Férias +1/3', 'Renda Extra',
-      'Dívida de Terceiros (recebida)', 'Reembolso', 'Outros',
-    ],
-    gasto: [
-      'Moradia', 'Alimentação', 'Transporte', 'Saúde', 'Educação',
-      'Lazer', 'Assinaturas', 'Cartão de Crédito', 'Dívidas', 'Outros',
-    ],
+    receita: ['Salário', '13º Salário', 'Férias +1/3', 'Renda Extra', 'Dívida de Terceiros (recebida)', 'Reembolso', 'Outros'],
+    gasto: ['Moradia', 'Alimentação', 'Transporte', 'Saúde', 'Educação', 'Lazer', 'Assinaturas', 'Cartão de Crédito', 'Dívidas', 'Outros'],
   },
 };
 
@@ -35,6 +31,9 @@ exports.handler = async (event) => {
 
     if (event.httpMethod === 'GET') {
       const settings = await readJSON(STORE, KEY, DEFAULT_SETTINGS);
+      // Garante que chaves antigas não quebrem o app novo
+      settings.cards = settings.cards || DEFAULT_SETTINGS.cards;
+      settings.fixedEntries = settings.fixedEntries || DEFAULT_SETTINGS.fixedEntries;
       return { statusCode: 200, headers, body: JSON.stringify(settings) };
     }
 
@@ -60,10 +59,8 @@ exports.handler = async (event) => {
 
       return { statusCode: 200, headers, body: JSON.stringify(updated) };
     }
-
     return { statusCode: 405, headers, body: JSON.stringify({ error: 'Método não permitido' }) };
   } catch (error) {
-    // Isso transforma o crash 502 em um aviso amigável no seu painel!
     return { statusCode: 500, headers, body: JSON.stringify({ error: error.message || 'Erro interno no servidor' }) };
   }
 };
