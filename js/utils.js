@@ -41,33 +41,62 @@ const Utils = (() => {
     transactions.forEach((t) => {
       const key = monthKey(t.date);
       if (!groups[key]) {
-        groups[key] = { key, receitas: 0, gastos: 0, byCategory: {}, byPerson: {}, items: [] };
+        groups[key] = { key, receitas: 0, gastos: 0, byCategory: {}, byPerson: {}, byPersonCard: {}, items: [], thirdParty: 0 };
       }
       const g = groups[key];
       g.items.push(t);
+      
       if (t.type === 'receita') {
         g.receitas += t.amount;
       } else {
         g.gastos += t.amount;
       }
-      g.byCategory[t.category] = (g.byCategory[t.category] || 0) + t.amount * (t.type === 'gasto' ? 1 : 0);
+      
+      // Gastos por pessoa (para saber quem pagou o quê)
       if (t.paidBy) {
         g.byPerson[t.paidBy] = (g.byPerson[t.paidBy] || 0) + (t.type === 'gasto' ? t.amount : 0);
+        
+        // Uso individual do Cartão de Crédito
+        if (t.paymentMethod === 'cartao' && t.type === 'gasto') {
+            g.byPersonCard[t.paidBy] = (g.byPersonCard[t.paidBy] || 0) + t.amount;
+        }
       }
+      
+      // Controle de terceiros (Empréstimos/Retornos)
+      if (t.isThirdParty) {
+          g.thirdParty += (t.type === 'gasto' ? t.amount : -t.amount);
+      }
+
+      g.byCategory[t.category] = (g.byCategory[t.category] || 0) + t.amount * (t.type === 'gasto' ? 1 : 0);
     });
 
     const keys = Object.keys(groups).sort();
     let running = 0;
+    
     const months = keys.map((key) => {
       const g = groups[key];
       const saldoMes = g.receitas - g.gastos;
       const saldoInicial = running;
       running += saldoMes;
+      
+      // Acerto de contas (divisão 50/50 dos gastos conjuntos)
+      // Se a pessoa A pagou 1000 e a B pagou 500. Total = 1500. A cota é 750.
+      // B precisa transferir 250 para A.
+      const acerto = {};
+      const ids = Object.keys(g.byPerson);
+      if(ids.length === 2) {
+          const diff = g.byPerson[ids[0]] - g.byPerson[ids[1]];
+          acerto.devedor = diff > 0 ? ids[1] : ids[0];
+          acerto.credor = diff > 0 ? ids[0] : ids[1];
+          acerto.valor = Math.abs(diff) / 2;
+      }
+
       return {
         ...g,
         saldoMes,
         saldoInicial,
         saldoFinal: running,
+        acerto
       };
     });
 

@@ -135,26 +135,28 @@ button { font-family: inherit; }
 .view-header h1 { font-size: 26px; }
 .subtitle { color: var(--ink-faint); font-size: 14px; margin-top: 4px; }
 
-/* ---------- FLOATING NAV ---------- */
-
+/* ---------- FLOATING NAV (REFINADA) ---------- */
 .floating-nav {
-  position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
-  display: flex; align-items: center; gap: 4px;
-  background: var(--teal-900); border-radius: 999px; padding: 8px;
-  box-shadow: var(--shadow-float); z-index: 30;
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 8px;
+  background: var(--surface); border-radius: 999px; padding: 8px 12px;
+  box-shadow: 0 10px 40px rgba(4, 52, 44, 0.15); border: 1px solid var(--line);
+  z-index: 30;
 }
 .nav-item {
-  background: none; border: none; color: rgba(255,255,255,0.55);
-  display: flex; flex-direction: column; align-items: center; gap: 2px;
-  padding: 8px 14px; border-radius: 999px; cursor: pointer; font-size: 10px; font-weight: 600;
+  background: none; border: none; color: var(--ink-faint);
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 8px 16px; border-radius: 999px; cursor: pointer; font-size: 11px; font-weight: 600;
+  transition: all 0.2s ease;
 }
-.nav-item i { font-size: 20px; }
-.nav-item.active { color: #fff; background: rgba(255,255,255,0.12); }
+.nav-item i { font-size: 22px; }
+.nav-item.active { color: var(--teal-700); background: var(--teal-100); }
 .nav-fab {
-  width: 50px; height: 50px; border-radius: 50%; background: var(--coral-500); color: #fff;
-  display: flex; align-items: center; justify-content: center; margin: 0 2px;
+  width: 54px; height: 54px; border-radius: 50%; background: var(--coral-500); color: #fff;
+  display: flex; align-items: center; justify-content: center; margin: 0 4px;
+  box-shadow: 0 4px 12px rgba(216, 90, 48, 0.3);
 }
-.nav-fab i { font-size: 24px; }
+.nav-fab i { font-size: 26px; }
 
 /* ---------- CARDS / METRICS ---------- */
 
@@ -263,17 +265,25 @@ select:focus, input:focus { outline: none; border-color: var(--teal-500); }
 .toast.show { opacity: 1; transform: translateY(0); }
 .toast-danger { background: var(--danger); }
 
-/* ---------- RESPONSIVE ---------- */
-
+/* ---------- RESPONSIVE (MOBILE NATIVO) ---------- */
 @media (max-width: 720px) {
   .grid-2 { grid-template-columns: 1fr; }
   .metrics-grid { grid-template-columns: 1fr 1fr; }
-  .nav-item span { display: none; }
-  .nav-item { padding: 10px; }
-  .view-container { padding: 18px 14px 40px; }
-  .modal-sheet { padding: 20px; }
-}
-
-@media (max-width: 420px) {
-  .metrics-grid { grid-template-columns: 1fr; }
+  .view-container { padding: 18px 14px 100px; }
+  .modal-sheet { padding: 20px; border-radius: 28px 28px 0 0; }
+  
+  /* Transforma a navbar em uma barra inferior completa */
+  .floating-nav {
+    bottom: 0; width: 100%; border-radius: 24px 24px 0 0;
+    justify-content: space-around; padding: 12px 10px 24px;
+    background: var(--surface); border-top: 1px solid var(--line);
+    box-shadow: 0 -4px 20px rgba(0,0,0,0.06);
+  }
+  .nav-item { padding: 8px; width: 60px; }
+  .nav-item span { display: block; font-size: 10px; margin-top: 2px; }
+  .nav-fab { transform: translateY(-15px); border: 4px solid var(--paper); }
+  
+  /* Ajuste do Login */
+  .login-screen { padding: 16px; align-items: flex-start; padding-top: 10vh; }
+  .login-card { padding: 32px 24px; }
 }

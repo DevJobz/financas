@@ -45,25 +45,43 @@ exports.handler = async (event) => {
     if (!data.date || !data.type || !data.category || data.amount === undefined) {
       return { statusCode: 400, headers, body: JSON.stringify({ error: 'Campos obrigatórios faltando' }) };
     }
+    
     const now = new Date().toISOString();
-    const item = {
-      id: crypto.randomUUID(),
-      date: data.date,
-      type: data.type,
-      category: data.category,
-      description: data.description || '',
-      amount: Number(data.amount),
-      paidBy: data.paidBy || user.sub,
-      paymentMethod: data.paymentMethod || 'outro',
-      installments: data.installments || null,
-      createdBy: user.name,
-      createdAt: now,
-      updatedAt: now,
-    };
-    list.push(item);
+    const installments = parseInt(data.installments) || 1;
+    const isFixed = Boolean(data.isFixed);
+    const groupId = installments > 1 ? crypto.randomUUID() : null;
+    
+    const createdItems = [];
+    
+    // Cria as parcelas automaticamente jogando a data um mês pra frente
+    for (let i = 0; i < installments; i++) {
+      let txDate = new Date(data.date);
+      txDate.setMonth(txDate.getMonth() + i);
+      
+      const item = {
+        id: crypto.randomUUID(),
+        groupId: groupId,
+        installmentLabel: installments > 1 ? `${i + 1}/${installments}` : null,
+        isFixed: isFixed, // Para identificar contas como Salário/Aluguel
+        isThirdParty: Boolean(data.isThirdParty), // Para empréstimos/irmão
+        date: txDate.toISOString().split('T')[0],
+        type: data.type,
+        category: data.category,
+        description: data.description || '',
+        amount: Number(data.amount),
+        paidBy: data.paidBy || user.sub,
+        paymentMethod: data.paymentMethod || 'outro',
+        createdBy: user.name,
+        createdAt: now,
+        updatedAt: now,
+      };
+      list.push(item);
+      createdItems.push(item);
+    }
+    
     await writeJSON(STORE, KEY, list);
-    await appendAudit(user, 'create', 'transaction', item.id, null, item);
-    return { statusCode: 201, headers, body: JSON.stringify(item) };
+    await appendAudit(user, 'create', 'transaction', createdItems[0].id, null, createdItems[0]);
+    return { statusCode: 201, headers, body: JSON.stringify(createdItems) };
   }
 
   if (event.httpMethod === 'PUT') {

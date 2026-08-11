@@ -5,6 +5,7 @@ const App = (() => {
     settings: null,
     months: [],
     view: 'dashboard',
+    dashboardMonthKey: null, // Controle de navegação de meses no Início
     filterMonth: null,
     filterPerson: 'todos',
     filterType: 'todos',
@@ -188,79 +189,72 @@ const App = (() => {
 
   function viewDashboard() {
     const months = state.months;
-    const currentKey = Utils.currentMonthKey();
-    const currentMonth = months.find((m) => m.key === currentKey);
-    const lastMonth = months[months.length - 1];
-    const saldoAtual = lastMonth ? lastMonth.saldoFinal : 0;
-    const saldoMesAtual = currentMonth ? currentMonth.saldoMes : 0;
+    // Lógica de navegação de meses
+    if(!state.dashboardMonthKey) state.dashboardMonthKey = Utils.currentMonthKey();
+    let currentIdx = months.findIndex(m => m.key === state.dashboardMonthKey);
+    
+    // Se não tem lançamentos nesse mês ainda, cria um mês virtual zerado
+    const currentMonth = currentIdx !== -1 ? months[currentIdx] : { key: state.dashboardMonthKey, receitas: 0, gastos: 0, saldoMes: 0, saldoFinal: 0, byPerson: {}, byPersonCard: {}, acerto: {} };
+    
+    const prevKey = currentIdx > 0 ? months[currentIdx - 1].key : null;
+    const nextKey = currentIdx !== -1 && currentIdx < months.length - 1 ? months[currentIdx + 1].key : null;
 
     const limite = (state.settings && state.settings.creditCardLimit) || 0;
-    const usoCartao = Utils.currentCreditCardUsage(state.transactions, currentKey);
+    const usoCartao = Utils.currentCreditCardUsage(state.transactions, state.dashboardMonthKey);
     const disponivel = limite - usoCartao;
-    const pctCartao = limite > 0 ? Math.min(100, Math.round((usoCartao / limite) * 100)) : 0;
-
-    const avisos = buildAvisos(currentMonth, saldoAtual, limite, usoCartao);
 
     return `
-      <section class="view-header">
-        <h1>Olá, ${state.user.name.split(' ')[0]}</h1>
-        <p class="subtitle">${Utils.monthLabel(currentKey)}</p>
+      <section class="view-header" style="justify-content: center; text-align: center; flex-direction: column;">
+        <h1 style="font-size: 20px; color: var(--ink-faint);">Visão Geral</h1>
+        <div style="display: flex; align-items: center; gap: 16px; margin-top: 8px;">
+          <button class="icon-btn" onclick="App.changeDashMonth('${prevKey}')" ${!prevKey ? 'disabled' : ''}><i class="ti ti-chevron-left"></i></button>
+          <h2 style="font-size: 24px; min-width: 200px;">${Utils.monthLabel(state.dashboardMonthKey)}</h2>
+          <button class="icon-btn" onclick="App.changeDashMonth('${nextKey}')" ${!nextKey ? 'disabled' : ''}><i class="ti ti-chevron-right"></i></button>
+        </div>
       </section>
-
-      ${avisos.length ? `<section class="avisos">${avisos.map(avisoCard).join('')}</section>` : ''}
 
       <section class="metrics-grid">
-        <div class="metric-card ${saldoAtual >= 0 ? 'positive' : 'negative'}">
-          <span class="metric-label">Saldo acumulado do casal</span>
-          <span class="metric-value">${Utils.fmtBRL(saldoAtual)}</span>
+        <div class="metric-card ${currentMonth.saldoFinal >= 0 ? 'positive' : 'negative'}">
+          <span class="metric-label">Saldo Acumulado (Total)</span>
+          <span class="metric-value">${Utils.fmtBRL(currentMonth.saldoFinal)}</span>
         </div>
-        <div class="metric-card ${saldoMesAtual >= 0 ? 'positive' : 'negative'}">
-          <span class="metric-label">Saldo deste mês</span>
-          <span class="metric-value">${Utils.fmtBRL(saldoMesAtual)}</span>
-        </div>
-        <div class="metric-card">
-          <span class="metric-label">Receitas do mês</span>
-          <span class="metric-value">${Utils.fmtBRL(currentMonth ? currentMonth.receitas : 0)}</span>
-        </div>
-        <div class="metric-card">
-          <span class="metric-label">Gastos do mês</span>
-          <span class="metric-value">${Utils.fmtBRL(currentMonth ? currentMonth.gastos : 0)}</span>
+        <div class="metric-card ${currentMonth.saldoMes >= 0 ? 'positive' : 'negative'}">
+          <span class="metric-label">Resultado do Mês</span>
+          <span class="metric-value">${Utils.fmtBRL(currentMonth.saldoMes)}</span>
         </div>
       </section>
+
+      ${currentMonth.acerto && currentMonth.acerto.valor > 0 ? `
+      <section class="aviso aviso-warning" style="justify-content: center;">
+        <i class="ti ti-scale"></i>
+        <span><strong>Acerto de contas:</strong> ${personName(currentMonth.acerto.devedor)} deve <strong>${Utils.fmtBRL(currentMonth.acerto.valor)}</strong> para ${personName(currentMonth.acerto.credor)} referente às contas em comum deste mês.</span>
+      </section>` : ''}
 
       <section class="card">
-        <div class="card-header">
-          <h2><i class="ti ti-credit-card"></i> Cartão de crédito</h2>
-          <span class="muted-small">Limite: ${Utils.fmtBRL(limite)}</span>
-        </div>
-        <div class="progress-bar">
-          <div class="progress-fill ${pctCartao >= 90 ? 'danger' : pctCartao >= 70 ? 'warning' : ''}" style="width:${pctCartao}%"></div>
-        </div>
-        <div class="progress-legend">
-          <span>Usado: <strong>${Utils.fmtBRL(usoCartao)}</strong></span>
-          <span>Disponível: <strong>${Utils.fmtBRL(disponivel)}</strong></span>
-        </div>
-      </section>
-
-      <section class="grid-2">
-        <div class="card">
-          <div class="card-header"><h2><i class="ti ti-chart-line"></i> Evolução do saldo</h2></div>
-          <div class="chart-box"><canvas id="chart-evolucao"></canvas></div>
-        </div>
-        <div class="card">
-          <div class="card-header"><h2><i class="ti ti-chart-bar"></i> Receitas x gastos</h2></div>
-          <div class="chart-box"><canvas id="chart-receitas-gastos"></canvas></div>
+        <div class="card-header"><h2><i class="ti ti-users"></i> Desempenho Individual</h2></div>
+        <div class="grid-2">
+          ${getPeople().map(p => `
+            <div style="border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 16px;">
+              <h3 style="margin-bottom: 12px; color: ${p.color};">${p.name}</h3>
+              <p style="display:flex; justify-content: space-between; font-size: 14px; margin-bottom: 8px;">
+                <span class="muted-small">Total pago:</span> <strong>${Utils.fmtBRL(currentMonth.byPerson[p.id] || 0)}</strong>
+              </p>
+              <p style="display:flex; justify-content: space-between; font-size: 14px;">
+                <span class="muted-small">Fatura (Cartão):</span> <strong>${Utils.fmtBRL(currentMonth.byPersonCard[p.id] || 0)}</strong>
+              </p>
+            </div>
+          `).join('')}
         </div>
       </section>
 
       <section class="grid-2">
         <div class="card">
-          <div class="card-header"><h2><i class="ti ti-chart-donut"></i> Gastos por categoria (mês)</h2></div>
+          <div class="card-header"><h2><i class="ti ti-chart-donut"></i> Gastos por categoria</h2></div>
           <div class="chart-box"><canvas id="chart-categoria"></canvas></div>
         </div>
         <div class="card">
-          <div class="card-header"><h2><i class="ti ti-users"></i> Quem gastou mais (mês)</h2></div>
-          <div class="chart-box"><canvas id="chart-pessoa"></canvas></div>
+          <div class="card-header"><h2><i class="ti ti-credit-card"></i> Cartão Geral</h2><span class="muted-small">Limite: ${Utils.fmtBRL(limite)}</span></div>
+          <div class="chart-box"><canvas id="chart-receitas-gastos"></canvas></div>
         </div>
       </section>
     `;
@@ -511,7 +505,8 @@ const App = (() => {
 
   // ---------- TRANSACTION MODAL ----------
 
-  function openTransactionModal(existing) {
+  function openTransactionModal(editId) {
+    const existing = editId ? state.transactions.find(t => t.id === editId) : null;
     state.editingId = existing ? existing.id : null;
     const type = existing ? existing.type : 'gasto';
     const categories = (state.settings && state.settings.categories && state.settings.categories[type]) || [];
@@ -522,7 +517,7 @@ const App = (() => {
         <div class="modal-sheet">
           <div class="modal-header">
             <h2>${existing ? 'Editar lançamento' : 'Novo lançamento'}</h2>
-            <button class="icon-btn" id="modal-close" aria-label="Fechar"><i class="ti ti-x"></i></button>
+            <button class="icon-btn" id="modal-close"><i class="ti ti-x"></i></button>
           </div>
           <form id="form-transacao" class="form-grid">
             <div class="segmented" id="tipo-segmented">
@@ -541,15 +536,15 @@ const App = (() => {
               </select>
             </label>
 
-            <label>Descrição
-              <input type="text" id="tx-desc" value="${existing ? existing.description || '' : ''}" placeholder="Ex: Mercado do mês" />
+            <label>Descrição (Ex: Luz, Mercado, Gasolina Irmão)
+              <input type="text" id="tx-desc" value="${existing ? existing.description || '' : ''}" />
             </label>
 
             <label>Valor (R$)
               <input type="number" step="0.01" min="0" id="tx-amount" value="${existing ? existing.amount : ''}" required />
             </label>
 
-            <label>Quem ${type === 'receita' ? 'recebeu' : 'pagou'}
+            <label>Responsável (${type === 'receita' ? 'Recebeu' : 'Pagou'})
               <select id="tx-paidby">
                 ${getPeople().map((p) => `<option value="${p.id}" ${(existing ? existing.paidBy : state.user.id) === p.id ? 'selected' : ''}>${p.name}</option>`).join('')}
               </select>
@@ -560,6 +555,22 @@ const App = (() => {
                 ${PAYMENT_METHODS.map((m) => `<option value="${m.id}" ${existing && existing.paymentMethod === m.id ? 'selected' : ''}>${m.label}</option>`).join('')}
               </select>
             </label>
+            
+            ${!existing ? `
+            <label style="flex-direction: row; align-items: center; gap: 10px; grid-column: 1 / -1;">
+              <input type="checkbox" id="tx-is-fixed" style="width: 20px; height: 20px;" />
+              Despesa/Receita Mensal Fixa (Salário, Aluguel, etc)
+            </label>
+
+            <label style="flex-direction: row; align-items: center; gap: 10px; grid-column: 1 / -1;">
+              <input type="checkbox" id="tx-is-third" style="width: 20px; height: 20px;" />
+              Dívida/Reembolso de Terceiros
+            </label>
+
+            <label id="label-installments" style="grid-column: 1 / -1;">Parcelar em quantas vezes?
+              <input type="number" min="1" max="72" id="tx-installments" value="1" />
+            </label>
+            ` : ''}
 
             <div class="modal-actions">
               ${existing ? `<button type="button" class="btn btn-danger-ghost" id="btn-delete-inline"><i class="ti ti-trash"></i> Excluir</button>` : '<span></span>'}
@@ -571,9 +582,9 @@ const App = (() => {
       </div>
     `;
 
+    // ... (Mantenha os event listeners do modal-close e segmented buttons originais) ...
     el('#modal-close').addEventListener('click', closeModal);
     el('#modal-overlay').addEventListener('click', (e) => { if (e.target.id === 'modal-overlay') closeModal(); });
-
     els('.seg-btn').forEach((btn) => btn.addEventListener('click', () => {
       els('.seg-btn').forEach((b) => b.classList.remove('active'));
       btn.classList.add('active');
@@ -583,8 +594,8 @@ const App = (() => {
       el('#tx-category').innerHTML = cats.map((c) => `<option value="${c}">${c}</option>`).join('');
       el('#label-payment-method').style.display = newType === 'gasto' ? '' : 'none';
     }));
-    el('#label-payment-method').style.display = type === 'gasto' ? '' : 'none';
-
+    
+    // Tratamento de exclusão
     if (existing) {
       el('#btn-delete-inline').addEventListener('click', async () => {
         if (!confirm('Excluir este lançamento?')) return;
@@ -609,18 +620,25 @@ const App = (() => {
         paidBy: el('#tx-paidby').value,
         paymentMethod: el('#tx-type').value === 'gasto' ? el('#tx-method').value : null,
       };
+      
+      if(!existing) {
+          payload.installments = parseInt(el('#tx-installments').value) || 1;
+          payload.isFixed = el('#tx-is-fixed').checked;
+          payload.isThirdParty = el('#tx-is-third').checked;
+      }
+
       if (!payload.date || !payload.category || isNaN(payload.amount) || payload.amount <= 0) {
-        el('#tx-error').textContent = 'Preencha data, categoria e um valor válido.';
+        el('#tx-error').textContent = 'Preencha data, categoria e valor.';
         el('#tx-error').classList.remove('hidden');
         return;
       }
       try {
         if (existing) {
           await Api.updateTransaction({ id: existing.id, ...payload });
-          showToast('Lançamento atualizado.', 'success');
+          showToast('Atualizado.', 'success');
         } else {
           await Api.createTransaction(payload);
-          showToast('Lançamento adicionado.', 'success');
+          showToast(payload.installments > 1 ? 'Parcelas geradas!' : 'Adicionado.', 'success');
         }
         closeModal();
         await loadData();
@@ -710,7 +728,35 @@ const App = (() => {
     });
   }
 
-  return { init };
+  // Delegador global de eventos para elementos que nascem depois na tela
+  document.getElementById('view-container').addEventListener('click', async (e) => {
+    // Escuta cliques no botão de edição (mesmo que clique no ícone dentro dele)
+    const btnEdit = e.target.closest('[data-edit]');
+    if(btnEdit) {
+        openTransactionModal(btnEdit.dataset.edit);
+    }
+
+    const btnDelete = e.target.closest('[data-delete]');
+    if(btnDelete) {
+        if (!confirm('Tem certeza que deseja excluir?')) return;
+        try {
+          await Api.deleteTransaction(btnDelete.dataset.delete);
+          await loadData();
+          renderView();
+          showToast('Lançamento excluído.', 'success');
+        } catch (err) { showToast(err.message, 'danger'); }
+    }
+  });
+  
+  // Expõe a função de trocar o mês para o HTML chamar no onClick
+  function changeDashMonth(key) {
+      if(key && key !== 'null') {
+          state.dashboardMonthKey = key;
+          renderView();
+      }
+  }
+
+  return { init, changeDashMonth };
 })();
 
 document.addEventListener('DOMContentLoaded', App.init);
