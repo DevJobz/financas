@@ -29,10 +29,11 @@ const Utils = (() => {
   
   const currentMonthKey = () => new Date().toISOString().slice(0, 7);
 
-  // MOTOR DE MESES: Calcula histórico, saldos acumulados e separa gastos por pessoa
+  // MOTOR DE MESES: Calcula histórico, saldos acumulados (geral e individual) e separa gastos por pessoa
   function buildMonthlySummary(transactions, settings) {
     const groups = {};
     const fixedEntries = (settings && settings.fixedEntries) || [];
+    const people = (settings && settings.people) || [];
     
     let minDate = new Date();
     let maxDate = new Date();
@@ -101,16 +102,41 @@ const Utils = (() => {
     });
 
     const keys = Object.keys(groups).sort();
-    let running = 0;
+    let runningTotal = 0;
+    const runningByPerson = {};
+    people.forEach(p => { runningByPerson[p.id] = 0; });
     
     return keys.map((key) => {
       const g = groups[key];
-      const saldoInicial = running;
+      
+      // Cálculo Geral do Casal
+      const saldoInicial = runningTotal;
       const entradasTotais = saldoInicial + g.receitas;
       const despesasTotais = g.gastos;
       const saldoRestante = entradasTotais - despesasTotais;
-      
-      running = saldoRestante;
+      runningTotal = saldoRestante;
+
+      // Cálculo Individual por Pessoa (Permite filtrar os cards no Início)
+      const personMetrics = {};
+      people.forEach(p => {
+        const pId = p.id;
+        const pSaldoInicial = runningByPerson[pId] || 0;
+        const pReceitas = g.byPersonRenda[pId] || 0;
+        const pGastos = g.byPerson[pId] || 0;
+        const pEntradasTotais = pSaldoInicial + pReceitas;
+        const pSaldoRestante = pEntradasTotais - pGastos;
+        
+        runningByPerson[pId] = pSaldoRestante;
+
+        personMetrics[pId] = {
+          saldoInicial: pSaldoInicial,
+          receitas: pReceitas,
+          gastos: pGastos,
+          entradasTotais: pEntradasTotais,
+          despesasTotais: pGastos,
+          saldoRestante: pSaldoRestante
+        };
+      });
 
       return { 
         ...g, 
@@ -118,8 +144,9 @@ const Utils = (() => {
         entradasTotais,
         despesasTotais,
         saldoRestante,
+        personMetrics,
         saldoMes: g.receitas - g.gastos, 
-        saldoFinal: running 
+        saldoFinal: runningTotal 
       };
     });
   }
@@ -147,7 +174,7 @@ const Utils = (() => {
     g.byCategory[t.category] = (g.byCategory[t.category] || 0) + t.amount * (t.type === 'gasto' ? 1 : 0);
   }
 
-  // Retorna o uso detalhado de cada cartão cadastrado para um mês específico
+  // CÁLCULO REAL DO CARTÃO: Soma todas as dívidas pendentes do mês visualizado EM DIANTE (incluindo parcelas futuras)
   function getCardsUsage(transactions, monthKeyStr, settings) {
     const cards = (settings && settings.cards) || [];
     const usageMap = {};
@@ -156,6 +183,7 @@ const Utils = (() => {
       usageMap[c.id] = {
         id: c.id,
         name: c.name,
+        owner: c.owner || 'u1',
         limit: Number(c.limit) || 0,
         used: 0,
         available: Number(c.limit) || 0,
@@ -163,8 +191,10 @@ const Utils = (() => {
       };
     });
 
+    const targetDateStart = `${monthKeyStr}-01`;
+
     transactions
-      .filter(t => t.type === 'gasto' && monthKey(t.date) === monthKeyStr)
+      .filter(t => t.type === 'gasto' && t.date >= targetDateStart)
       .forEach(t => {
         if (t.paymentMethod && t.paymentMethod.startsWith('card_')) {
           const cardId = t.paymentMethod.replace('card_', '');
@@ -181,7 +211,6 @@ const Utils = (() => {
     return Object.values(usageMap);
   }
 
-  // Pega os 6 meses anteriores e incluindo o mês selecionado (Corrige o bug do gráfico em 2028)
   function getMonthsUpTo(months, targetKey, count = 6) {
     const idx = months.findIndex(m => m.key === targetKey);
     if (idx === -1) return months.slice(-count);
