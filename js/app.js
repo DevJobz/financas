@@ -6,6 +6,7 @@ const App = (() => {
     months: [],
     view: 'dashboard',
     dashboardMonthKey: null,
+    dashFilterPerson: 'todos', // Controle do filtro de pessoa na tela de Início
     filterMonth: null,
     filterPerson: 'todos',
     filterType: 'todos',
@@ -245,7 +246,7 @@ const App = (() => {
     return p ? p.color : '#888780';
   }
 
-  // ---------- DASHBOARD (Página Inicial) ----------
+  // ---------- DASHBOARD (Página Inicial com Filtro por Pessoa) ----------
 
   function viewDashboard() {
     if (!state.dashboardMonthKey) state.dashboardMonthKey = Utils.currentMonthKey();
@@ -259,6 +260,7 @@ const App = (() => {
       entradasTotais: 0,
       despesasTotais: 0,
       saldoRestante: 0,
+      personMetrics: {},
       saldoMes: 0, 
       saldoFinal: 0, 
       byPerson: {}, 
@@ -269,6 +271,23 @@ const App = (() => {
 
     const cardsUsage = Utils.getCardsUsage(state.transactions, state.dashboardMonthKey, state.settings);
 
+    // Seleciona métricas a serem exibidas nos 3 cards com base no filtro de pessoa selecionado
+    let saldoAnt, recMes, entTotais, despTotais, saldoRest;
+    if (state.dashFilterPerson === 'todos' || !currentMonth.personMetrics[state.dashFilterPerson]) {
+      saldoAnt = currentMonth.saldoInicial;
+      recMes = currentMonth.receitas;
+      entTotais = currentMonth.entradasTotais;
+      despTotais = currentMonth.despesasTotais;
+      saldoRest = currentMonth.saldoRestante;
+    } else {
+      const pm = currentMonth.personMetrics[state.dashFilterPerson];
+      saldoAnt = pm.saldoInicial;
+      recMes = pm.receitas;
+      entTotais = pm.entradasTotais;
+      despTotais = pm.despesasTotais;
+      saldoRest = pm.saldoRestante;
+    }
+
     return `
       <section class="view-header" style="justify-content: center; text-align: center; flex-direction: column;">
         <h1 style="font-size: 20px; color: var(--ink-faint);">Visão Geral</h1>
@@ -277,30 +296,38 @@ const App = (() => {
           <h2 style="font-size: 24px; min-width: 200px;">${Utils.monthLabel(state.dashboardMonthKey)}</h2>
           <button class="icon-btn" data-dash-nav="1" style="background: var(--surface-sunken);"><i class="ti ti-chevron-right"></i></button>
         </div>
+        
+        <!-- SELETOR DE FILTRO POR PESSOA NO INÍCIO -->
+        <div style="margin-top: 14px;">
+          <select id="dash-filter-person" onchange="App.setDashPerson(this.value)" style="height: 38px; font-size: 13px; padding: 0 14px; border-radius: 999px; background: var(--surface); border: 1.5px solid var(--line); font-weight: 600;">
+            <option value="todos" ${state.dashFilterPerson === 'todos' ? 'selected' : ''}>Métricas: Casal (Todos)</option>
+            ${getPeople().map(p => `<option value="${p.id}" ${state.dashFilterPerson === p.id ? 'selected' : ''}>Métricas: ${p.name}</option>`).join('')}
+          </select>
+        </div>
       </section>
 
       <!-- 3 CARDS ESTILO PLANILHA: ENTRADAS TOTAIS | DESPESAS | SALDO RESTANTE -->
       <section class="metrics-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
         <div class="metric-card positive">
           <span class="metric-label">Total de Entradas (Mês + Acumulado)</span>
-          <span class="metric-value">${Utils.fmtBRL(currentMonth.entradasTotais)}</span>
+          <span class="metric-value">${Utils.fmtBRL(entTotais)}</span>
           <span class="muted-small" style="font-size: 11px; margin-top: 2px;">
-            Saldo Anterior: ${Utils.fmtBRL(currentMonth.saldoInicial)} + Receitas: ${Utils.fmtBRL(currentMonth.receitas)}
+            Saldo Anterior: ${Utils.fmtBRL(saldoAnt)} + Receitas: ${Utils.fmtBRL(recMes)}
           </span>
         </div>
         <div class="metric-card negative">
           <span class="metric-label">Total de Despesas (Saídas)</span>
-          <span class="metric-value">${Utils.fmtBRL(currentMonth.despesasTotais)}</span>
+          <span class="metric-value">${Utils.fmtBRL(despTotais)}</span>
           <span class="muted-small" style="font-size: 11px; margin-top: 2px;">Gastos registrados no mês</span>
         </div>
-        <div class="metric-card ${currentMonth.saldoRestante >= 0 ? 'positive' : 'negative'}">
+        <div class="metric-card ${saldoRest >= 0 ? 'positive' : 'negative'}">
           <span class="metric-label">Saldo Restante (Disponível)</span>
-          <span class="metric-value">${Utils.fmtBRL(currentMonth.saldoRestante)}</span>
+          <span class="metric-value">${Utils.fmtBRL(saldoRest)}</span>
           <span class="muted-small" style="font-size: 11px; margin-top: 2px;">Entradas − Despesas</span>
         </div>
       </section>
 
-      <!-- FEEDBACK VISUAL DOS CARTÕES DE CRÉDITO -->
+      <!-- FEEDBACK VISUAL DOS CARTÕES DE CRÉDITO (COM DONO E LIMITE FUTURO EM CASCATA) -->
       <section class="card">
         <div class="card-header">
           <h2><i class="ti ti-credit-card"></i> Cartões de Crédito (Limite Retido vs. Disponível)</h2>
@@ -310,7 +337,10 @@ const App = (() => {
           ${cardsUsage.map(c => `
             <div style="border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 14px;">
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                <strong style="font-size: 15px; color: var(--teal-900);">${c.name}</strong>
+                <div>
+                  <strong style="font-size: 15px; color: var(--teal-900);">${c.name}</strong>
+                  <span class="user-chip" style="--chip-color:${personColor(c.owner)}; margin-left: 8px; font-size: 11px; padding: 2px 8px;">${personName(c.owner)}</span>
+                </div>
                 <span class="muted-small">Limite Total: <strong>${Utils.fmtBRL(c.limit)}</strong></span>
               </div>
               
@@ -395,6 +425,11 @@ const App = (() => {
         <div class="chart-box"><canvas id="chart-receitas-gastos"></canvas></div>
       </section>
     `;
+  }
+
+  function setDashPerson(val) {
+    state.dashFilterPerson = val;
+    renderView();
   }
 
   function changeDashMonth(offset) {
@@ -512,12 +547,22 @@ const App = (() => {
     `;
   }
 
-  // ---------- TRANSACTION MODAL (COM BANNER DE ALTERAÇÃO EM CASCATA) ----------
+  // ---------- TRANSACTION MODAL (COM DATA DEFAULT CONTEXTUAL AO MÊS SELECIONADO) ----------
 
   function openTransactionModal(editId) {
     const existing = editId ? state.transactions.find((t) => t.id === editId) : null;
     const type = existing ? existing.type : 'gasto';
     const categories = (state.settings && state.settings.categories && state.settings.categories[type]) || [];
+
+    // DATA CONTEXTUAL: Se está criando novo na aba Lançamentos, herda o 1º dia do mês visualizado
+    let defaultDate = new Date().toISOString().slice(0, 10);
+    if (!existing && state.view === 'lancamentos' && state.filterMonth) {
+      if (state.filterMonth === Utils.currentMonthKey()) {
+        defaultDate = new Date().toISOString().slice(0, 10);
+      } else {
+        defaultDate = `${state.filterMonth}-01`;
+      }
+    }
 
     el('#modal-root').innerHTML = `
       <div class="modal-overlay" id="modal-overlay">
@@ -534,7 +579,6 @@ const App = (() => {
             <input type="hidden" id="tx-type" value="${type}" />
 
             ${existing && existing.groupId ? `
-            <!-- BANNER DE PROPAGAÇÃO EM CASCATA -->
             <div style="grid-column: 1 / -1; background: var(--teal-100); color: var(--teal-900); padding: 14px; border-radius: var(--radius-sm); border-left: 4px solid var(--teal-700); margin-bottom: 8px;">
               <label style="flex-direction: row; align-items: center; gap: 10px; margin: 0; font-weight: 600; color: var(--teal-900); cursor: pointer;">
                 <input type="checkbox" id="tx-update-group" checked style="width: 18px; height: 18px;" />
@@ -547,7 +591,7 @@ const App = (() => {
             ` : ''}
             
             <label>Data
-              <input type="date" id="tx-date" value="${existing ? existing.date : new Date().toISOString().slice(0, 10)}" required />
+              <input type="date" id="tx-date" value="${existing ? existing.date : defaultDate}" required />
             </label>
             <label>Categoria
               <select id="tx-category">
@@ -624,7 +668,6 @@ const App = (() => {
     }));
 
     if (existing) {
-      // Exclusão de apenas esta parcela do grupo
       el('#btn-delete-inline')?.addEventListener('click', async () => {
         const msg = existing.groupId 
           ? 'Deseja excluir APENAS ESTA PARCELA do mês atual?' 
@@ -639,7 +682,6 @@ const App = (() => {
         } catch (e) { showToast(e.message, 'danger'); }
       });
 
-      // Exclusão de TODAS as parcelas do grupo
       el('#btn-delete-group-inline')?.addEventListener('click', async () => {
         if (!confirm(`Deseja excluir TODAS AS PARCELAS do parcelamento "${existing.description}"?`)) return;
         try {
@@ -793,7 +835,7 @@ const App = (() => {
     `;
   }
 
-  // ---------- CONFIGURAÇÕES E FIXOS ----------
+  // ---------- CONFIGURAÇÕES E FIXOS (COM DONO DO CARTÃO) ----------
 
   function viewConfig() {
     const s = state.settings || {};
@@ -860,12 +902,13 @@ const App = (() => {
         <div class="table-wrap" style="margin-bottom:16px;">
           <table class="data-table">
             <thead>
-              <tr><th>Cartão</th><th class="num">Limite</th><th class="num">Vencimento</th><th></th></tr>
+              <tr><th>Cartão</th><th>Dono</th><th class="num">Limite</th><th class="num">Vencimento</th><th></th></tr>
             </thead>
             <tbody>
               ${cards.map((c, i) => `
               <tr>
                 <td>${c.name}</td>
+                <td><span class="user-chip" style="--chip-color:${personColor(c.owner)}; font-size: 11px; padding: 2px 8px;">${personName(c.owner || 'u1')}</span></td>
                 <td class="num">${Utils.fmtBRL(c.limit)}</td>
                 <td class="num">Dia ${c.closeDay}</td>
                 <td class="row-actions"><button type="button" class="icon-btn" onclick="App.deleteCard(${i})"><i class="ti ti-trash"></i></button></td>
@@ -877,6 +920,11 @@ const App = (() => {
         <form id="form-card" class="form-grid" style="background:var(--surface-sunken); padding:16px; border-radius:var(--radius-sm);">
           <label>Nome do Cartão
             <input type="text" id="cfg-c-name" required/>
+          </label>
+          <label>Dono do Cartão
+            <select id="cfg-c-owner">
+              ${people.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}
+            </select>
           </label>
           <label>Limite (R$)
             <input type="number" step="0.01" id="cfg-c-limit" required/>
@@ -948,6 +996,7 @@ const App = (() => {
       cards.push({
         id: crypto.randomUUID(), 
         name: el('#cfg-c-name').value.trim(),
+        owner: el('#cfg-c-owner').value,
         limit: parseFloat(el('#cfg-c-limit').value), 
         closeDay: parseInt(el('#cfg-c-day').value)
       });
@@ -1007,6 +1056,11 @@ const App = (() => {
 
   // ---------- FUNÇÕES EXPOSTAS PARA O HTML ----------
 
+  function setDashPerson(val) {
+    state.dashFilterPerson = val;
+    renderView();
+  }
+
   function changeDashMonth(param) {
     if (!param || param === 'null') return;
     
@@ -1020,7 +1074,7 @@ const App = (() => {
     renderView();
   }
 
-  return { init, changeDashMonth, setFilter, deleteFixed, deleteCard };
+  return { init, changeDashMonth, setDashPerson, setFilter, deleteFixed, deleteCard };
 })();
 
 document.addEventListener('DOMContentLoaded', App.init);
