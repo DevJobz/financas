@@ -160,9 +160,7 @@ const App = (() => {
     el('#view-container').addEventListener('click', async (e) => {
       // Evento de Editar
       const btnEdit = e.target.closest('[data-edit]');
-      if (btnEdit) {
-          openTransactionModal(btnEdit.dataset.edit);
-      }
+      if (btnEdit) openTransactionModal(btnEdit.dataset.edit);
 
       // Evento de Excluir
       const btnDelete = e.target.closest('[data-delete]');
@@ -174,6 +172,18 @@ const App = (() => {
             renderView();
             showToast('Lançamento excluído.', 'success');
           } catch (err) { showToast(err.message, 'danger'); }
+      }
+
+      // Evento do botão "Novo" na tela de lançamentos
+      const btnAddTx = e.target.closest('#btn-add-transacao');
+      if (btnAddTx) {
+          openTransactionModal();
+      }
+
+      // Evento de passar os meses no Dashboard
+      const btnDashNav = e.target.closest('[data-dash-nav]');
+      if (btnDashNav) {
+          changeDashMonth(parseInt(btnDashNav.dataset.dashNav));
       }
 
       // Evento de Navegar para Auditoria
@@ -236,9 +246,9 @@ const App = (() => {
       <section class="view-header" style="justify-content: center; text-align: center; flex-direction: column;">
         <h1 style="font-size: 20px; color: var(--ink-faint);">Visão Geral</h1>
         <div style="display: flex; align-items: center; gap: 16px; margin-top: 8px;">
-          <button class="icon-btn" onclick="App.changeDashMonth(-1)"><i class="ti ti-chevron-left"></i></button>
+          <button class="icon-btn" data-dash-nav="-1" style="background: var(--surface-sunken);"><i class="ti ti-chevron-left"></i></button>
           <h2 style="font-size: 24px; min-width: 200px;">${Utils.monthLabel(state.dashboardMonthKey)}</h2>
-          <button class="icon-btn" onclick="App.changeDashMonth(1)"><i class="ti ti-chevron-right"></i></button>
+          <button class="icon-btn" data-dash-nav="1" style="background: var(--surface-sunken);"><i class="ti ti-chevron-right"></i></button>
         </div>
       </section>
 
@@ -409,7 +419,11 @@ const App = (() => {
         <td><span class="dot" style="background:${personColor(t.paidBy)}"></span>${personName(t.paidBy)}</td>
         <td>${method ? method.label : '—'}</td>
         <td class="num ${cls}">${sign} ${Utils.fmtBRL(t.amount)}</td>
-        <td class="row-actions" style="min-width: 96px; display: flex; justify-content: flex-end; gap: 4px; border: none;">${btnHtml}</td>
+        <td class="col-actions" style="position: sticky; right: 0; background: var(--surface); padding-left: 12px; box-shadow: -4px 0 10px rgba(0,0,0,0.02);">
+          <div style="display: flex; justify-content: flex-end; gap: 4px; min-width: 80px;">
+            ${btnHtml}
+          </div>
+        </td>
       </tr>
     `;
   }

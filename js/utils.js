@@ -24,18 +24,33 @@ const monthLabel = (key) => {
   };
   const currentMonthKey = () => new Date().toISOString().slice(0, 7);
 
-  // NOVO MOTOR: Calcula histórico cruzando Lançamentos Reais vs Fixos (Ajustes)
+ // NOVO MOTOR: Calcula histórico cruzando Lançamentos Reais vs Fixos (Ajustes)
   function buildMonthlySummary(transactions, settings) {
     const groups = {};
     const fixedEntries = (settings && settings.fixedEntries) || [];
     
-    // 1. Define a linha do tempo (do mês mais antigo até 6 meses pra frente)
+    // 1. Define a linha do tempo dinamicamente
     let minDate = new Date();
-    transactions.forEach(t => { const d = new Date(t.date); if(d < minDate) minDate = d; });
+    let maxDate = new Date(); // Começa hoje
+    
+    // Procura a data mais antiga e a data mais no futuro (para não cortar parcelamentos longos)
+    transactions.forEach(t => { 
+      const d = new Date(t.date); 
+      if(d < minDate) minDate = d; 
+      if(d > maxDate) maxDate = d;
+    });
+    
     minDate.setDate(1);
     
-    let maxDate = new Date();
-    maxDate.setMonth(maxDate.getMonth() + 6);
+    // Garante que projete pelo menos 6 meses pra frente, ou até o fim do último parcelamento
+    let futureLimit = new Date();
+    futureLimit.setMonth(futureLimit.getMonth() + 6);
+    
+    if (maxDate < futureLimit) {
+      maxDate = futureLimit;
+    } else {
+      maxDate.setMonth(maxDate.getMonth() + 1); // Dá 1 mês de respiro além da última conta
+    }
 
     let curr = new Date(minDate);
     while (curr <= maxDate) {
