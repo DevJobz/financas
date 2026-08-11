@@ -396,11 +396,10 @@ const App = (() => {
     if(t.installmentLabel) desc += ` <span class="muted-small">(${t.installmentLabel})</span>`;
     if(t.isThirdParty) desc += ` <br><small style="color:var(--warning)">[Terceiro: ${t.thirdPartyName || '?'} | Receber: ${Utils.fmtDate(t.thirdPartyDate)}]</small>`;
     
-    // Bloqueia edição nativa de virtuais, exibe alerta se tentar (só para UI visual)
     const btnHtml = t.isVirtual 
-      ? `<button class="icon-btn" onclick="alert('Isso é um lançamento Fixo automático. Para editá-lo neste mês, adicione um lançamento manual de mesma categoria e pessoa, ou mude o valor base em Ajustes.')"><i class="ti ti-lock"></i></button>`
-      : `<button class="icon-btn" data-edit="${t.id}" aria-label="Editar"><i class="ti ti-edit"></i></button>
-         <button class="icon-btn" data-delete="${t.id}" aria-label="Excluir"><i class="ti ti-trash"></i></button>`;
+      ? `<button class="icon-btn" onclick="alert('Lançamento Fixo automático. Edite em Ajustes ou adicione um lançamento manual igual para sobrescrever neste mês.')"><i class="ti ti-lock"></i></button>`
+      : `<button class="icon-btn" data-edit="${t.id}" aria-label="Editar" title="Editar"><i class="ti ti-edit"></i></button>
+         <button class="icon-btn" data-delete="${t.id}" aria-label="Excluir" title="Excluir"><i class="ti ti-trash"></i></button>`;
 
     return `
       <tr>
@@ -410,7 +409,7 @@ const App = (() => {
         <td><span class="dot" style="background:${personColor(t.paidBy)}"></span>${personName(t.paidBy)}</td>
         <td>${method ? method.label : '—'}</td>
         <td class="num ${cls}">${sign} ${Utils.fmtBRL(t.amount)}</td>
-        <td class="row-actions col-actions">${btnHtml}</td>
+        <td class="row-actions" style="min-width: 96px; display: flex; justify-content: flex-end; gap: 4px; border: none;">${btnHtml}</td>
       </tr>
     `;
   }
@@ -875,13 +874,22 @@ const App = (() => {
 
   // ---------- FUNÇÕES EXPOSTAS PARA O HTML ----------
 
-  function changeDashMonth(key) {
-      if(key && key !== 'null') {
-          state.dashboardMonthKey = key;
-          renderView();
-      }
+  function changeDashMonth(param) {
+    if (!param || param === 'null') return;
+    
+    if (typeof param === 'number') {
+      // Quando clica nas setas do Dashboard (-1 ou 1)
+      let d = new Date(state.dashboardMonthKey + '-01T12:00:00');
+      d.setMonth(d.getMonth() + param);
+      state.dashboardMonthKey = d.toISOString().slice(0, 7);
+    } else {
+      // Quando seleciona o mês direto no filtro
+      state.dashboardMonthKey = param;
+    }
+    renderView();
   }
 
+  // Mantenha o return fechando o módulo!
   return { init, changeDashMonth, setFilter, deleteFixed, deleteCard };
 })();
 

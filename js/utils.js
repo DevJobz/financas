@@ -9,14 +9,18 @@ const Utils = (() => {
   const monthKey = (isoDate) => isoDate.slice(0, 7);
 
   const MONTH_NAMES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
-  const monthLabel = (key) => {
-    if (!key) return '';
-    const [y, m] = key.split('-');
-    return `${MONTH_NAMES[Number(m) - 1]} de ${y}`;
+const monthLabel = (key) => {
+    if (!key || typeof key !== 'string') return '';
+    const parts = key.split('-');
+    if (parts.length < 2) return key;
+    return `${MONTH_NAMES[Number(parts[1]) - 1]} de ${parts[0]}`;
   };
+
   const monthLabelShort = (key) => {
-    const [y, m] = key.split('-');
-    return `${MONTH_NAMES[Number(m) - 1].slice(0, 3)}/${y.slice(2)}`;
+    if (!key || typeof key !== 'string') return '';
+    const parts = key.split('-');
+    if (parts.length < 2) return key;
+    return `${MONTH_NAMES[Number(parts[1]) - 1].slice(0, 3)}/${parts[0].slice(2)}`;
   };
   const currentMonthKey = () => new Date().toISOString().slice(0, 7);
 
