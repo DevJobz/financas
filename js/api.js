@@ -1,5 +1,6 @@
 const Api = (() => {
-  const BASE = '/api';
+  // Mantemos a chamada direta às funções serverless para máxima compatibilidade
+  const BASE = '/.netlify/functions';
 
   function getToken() {
     return localStorage.getItem('fc_token');
@@ -7,13 +8,22 @@ const Api = (() => {
 
   async function request(path, options = {}) {
     const token = getToken();
-    const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
-    if (token) headers.Authorization = `Bearer ${token}`;
+    const headers = { 
+      'Content-Type': 'application/json', 
+      ...(options.headers || {}) 
+    };
+    
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
 
     const res = await fetch(`${BASE}${path}`, { ...options, headers });
 
+    // RESTAURADO: Se o token expirar (401), desloga o usuário na hora
     if (res.status === 401) {
-      Auth.logout();
+      if (typeof Auth !== 'undefined' && Auth.logout) {
+        Auth.logout();
+      }
       throw new Error('Sessão expirada. Faça login novamente.');
     }
 
@@ -32,25 +42,25 @@ const Api = (() => {
 
   return {
     login: (username, password) =>
-      fetch(`${BASE}/auth`, {
+      request('/auth', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
-      }).then(async (res) => {
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Falha no login');
-        return data;
       }),
 
     getTransactions: () => request('/transactions'),
+    
     createTransaction: (payload) =>
       request('/transactions', { method: 'POST', body: JSON.stringify(payload) }),
+    
     updateTransaction: (payload) =>
       request('/transactions', { method: 'PUT', body: JSON.stringify(payload) }),
-    deleteTransaction: (id) =>
-      request(`/transactions?id=${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    
+    // ADICIONADO: Suporte a exclusão individual ou em cascata (todo o grupo)
+    deleteTransaction: (id, deleteGroup = false) =>
+      request(`/transactions?id=${encodeURIComponent(id)}&deleteGroup=${deleteGroup}`, { method: 'DELETE' }),
 
     getSettings: () => request('/settings'),
+    
     updateSettings: (payload) =>
       request('/settings', { method: 'PUT', body: JSON.stringify(payload) }),
 
