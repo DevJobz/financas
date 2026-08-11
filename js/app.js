@@ -15,7 +15,6 @@ const App = (() => {
   function el(sel, root = document) { return root.querySelector(sel); }
   function els(sel, root = document) { return Array.from(root.querySelectorAll(sel)); }
 
-  // Retorna métodos de pagamento mesclando os fixos com os cartões do casal
   function getPaymentMethods() {
     const base = [
       { id: 'dinheiro', label: 'Dinheiro/Conta' },
@@ -156,41 +155,35 @@ const App = (() => {
     
     el('#btn-add-fab').addEventListener('click', () => openTransactionModal());
 
-    // Delegador Global de Eventos
+    // DELEGADOR GLOBAL DE EVENTOS
     el('#view-container').addEventListener('click', async (e) => {
-      // Evento de Editar
       const btnEdit = e.target.closest('[data-edit]');
       if (btnEdit) openTransactionModal(btnEdit.dataset.edit);
 
-      // Evento de Excluir
       const btnDelete = e.target.closest('[data-delete]');
       if (btnDelete) {
-          if (!confirm('Tem certeza que deseja excluir este lançamento?')) return;
-          try {
-            await Api.deleteTransaction(btnDelete.dataset.delete);
-            await loadData();
-            renderView();
-            showToast('Lançamento excluído.', 'success');
-          } catch (err) { showToast(err.message, 'danger'); }
+        if (!confirm('Tem certeza que deseja excluir este lançamento?')) return;
+        try {
+          await Api.deleteTransaction(btnDelete.dataset.delete);
+          await loadData();
+          renderView();
+          showToast('Lançamento excluído.', 'success');
+        } catch (err) { showToast(err.message, 'danger'); }
       }
 
-      // Evento do botão "Novo" na tela de lançamentos
       const btnAddTx = e.target.closest('#btn-add-transacao');
-      if (btnAddTx) {
-          openTransactionModal();
-      }
+      if (btnAddTx) openTransactionModal();
 
-      // Evento de passar os meses no Dashboard
       const btnDashNav = e.target.closest('[data-dash-nav]');
-      if (btnDashNav) {
-          changeDashMonth(parseInt(btnDashNav.dataset.dashNav));
-      }
+      if (btnDashNav) changeDashMonth(parseInt(btnDashNav.dataset.dashNav));
 
-      // Evento de Navegar para Auditoria
+      const btnLancNav = e.target.closest('[data-lanc-nav]');
+      if (btnLancNav) changeLancamentosMonth(parseInt(btnLancNav.dataset.lancNav));
+
       const btnAuditoria = e.target.closest('#btn-ver-auditoria, #btn-ir-auditoria');
       if (btnAuditoria) {
-          state.view = 'auditoria';
-          renderView();
+        state.view = 'auditoria';
+        renderView();
       }
     });
   }
@@ -235,12 +228,29 @@ const App = (() => {
     return p ? p.color : '#888780';
   }
 
-  // ---------- DASHBOARD ----------
+  // ---------- DASHBOARD (Página Inicial) ----------
 
   function viewDashboard() {
-    if(!state.dashboardMonthKey) state.dashboardMonthKey = Utils.currentMonthKey();
+    if (!state.dashboardMonthKey) state.dashboardMonthKey = Utils.currentMonthKey();
     let currentIdx = state.months.findIndex(m => m.key === state.dashboardMonthKey);
-    const currentMonth = currentIdx !== -1 ? state.months[currentIdx] : { key: state.dashboardMonthKey, receitas: 0, gastos: 0, saldoMes: 0, saldoFinal: 0, byPerson: {}, byPersonRenda: {}, byPersonCard: {}, acerto: {}, byCategoryPerson: {} };
+    
+    const currentMonth = currentIdx !== -1 ? state.months[currentIdx] : { 
+      key: state.dashboardMonthKey, 
+      receitas: 0, 
+      gastos: 0, 
+      saldoInicial: 0,
+      entradasTotais: 0,
+      despesasTotais: 0,
+      saldoRestante: 0,
+      saldoMes: 0, 
+      saldoFinal: 0, 
+      byPerson: {}, 
+      byPersonRenda: {}, 
+      byPersonCard: {}, 
+      byCategoryPerson: {} 
+    };
+
+    const cardsUsage = Utils.getCardsUsage(state.transactions, state.dashboardMonthKey, state.settings);
 
     return `
       <section class="view-header" style="justify-content: center; text-align: center; flex-direction: column;">
@@ -252,27 +262,59 @@ const App = (() => {
         </div>
       </section>
 
-      <section class="metrics-grid">
-        <div class="metric-card ${currentMonth.saldoFinal >= 0 ? 'positive' : 'negative'}">
-          <span class="metric-label">Saldo Acumulado</span>
-          <span class="metric-value">${Utils.fmtBRL(currentMonth.saldoFinal)}</span>
+      <!-- 3 CARDS ESTILO PLANILHA: ENTRADAS TOTAIS | DESPESAS | SALDO RESTANTE -->
+      <section class="metrics-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+        <div class="metric-card positive">
+          <span class="metric-label">Total de Entradas (Mês + Acumulado)</span>
+          <span class="metric-value">${Utils.fmtBRL(currentMonth.entradasTotais)}</span>
+          <span class="muted-small" style="font-size: 11px; margin-top: 2px;">
+            Saldo Anterior: ${Utils.fmtBRL(currentMonth.saldoInicial)} + Receitas: ${Utils.fmtBRL(currentMonth.receitas)}
+          </span>
         </div>
-        <div class="metric-card ${currentMonth.saldoMes >= 0 ? 'positive' : 'negative'}">
-          <span class="metric-label">Resultado do Mês</span>
-          <span class="metric-value">${Utils.fmtBRL(currentMonth.saldoMes)}</span>
+        <div class="metric-card negative">
+          <span class="metric-label">Total de Despesas (Saídas)</span>
+          <span class="metric-value">${Utils.fmtBRL(currentMonth.despesasTotais)}</span>
+          <span class="muted-small" style="font-size: 11px; margin-top: 2px;">Gastos registrados no mês</span>
+        </div>
+        <div class="metric-card ${currentMonth.saldoRestante >= 0 ? 'positive' : 'negative'}">
+          <span class="metric-label">Saldo Restante (Disponível)</span>
+          <span class="metric-value">${Utils.fmtBRL(currentMonth.saldoRestante)}</span>
+          <span class="muted-small" style="font-size: 11px; margin-top: 2px;">Entradas − Despesas</span>
         </div>
       </section>
 
-      ${currentMonth.acerto && currentMonth.acerto.valor > 0 ? `
-      <section class="aviso aviso-warning" style="justify-content: center;">
-        <i class="ti ti-scale"></i>
-        <span><strong>Acerto:</strong> ${personName(currentMonth.acerto.devedor)} deve <strong>${Utils.fmtBRL(currentMonth.acerto.valor)}</strong> para ${personName(currentMonth.acerto.credor)}.</span>
-      </section>` : ''}
+      <!-- FEEDBACK VISUAL DOS CARTÕES DE CRÉDITO -->
+      <section class="card">
+        <div class="card-header">
+          <h2><i class="ti ti-credit-card"></i> Cartões de Crédito (Limite Retido vs. Disponível)</h2>
+        </div>
+        ${cardsUsage.length > 0 ? `
+        <div style="display: flex; flex-direction: column; gap: 16px;">
+          ${cardsUsage.map(c => `
+            <div style="border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 14px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <strong style="font-size: 15px; color: var(--teal-900);">${c.name}</strong>
+                <span class="muted-small">Limite Total: <strong>${Utils.fmtBRL(c.limit)}</strong></span>
+              </div>
+              
+              <div class="progress-bar">
+                <div class="progress-fill ${c.pct >= 90 ? 'danger' : c.pct >= 70 ? 'warning' : ''}" style="width: ${c.pct}%"></div>
+              </div>
+              
+              <div class="progress-legend" style="margin-top: 8px; font-size: 13px;">
+                <span style="color: var(--coral-700);">Retido / Usado: <strong>${Utils.fmtBRL(c.used)}</strong> (${c.pct}%)</span>
+                <span style="color: var(--teal-700);">Disponível: <strong>${Utils.fmtBRL(c.available)}</strong></span>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+        ` : `<p class="muted-small">Nenhum cartão de crédito cadastrado na aba Ajustes ainda.</p>`}
+      </section>
 
+      <!-- DESEMPENHO INDIVIDUAL -->
       <section class="card">
         <div class="card-header"><h2><i class="ti ti-users"></i> Desempenho Individual</h2></div>
         
-        <!-- Barra de Proporção de Renda -->
         ${currentMonth.receitas > 0 ? `
         <div style="margin-bottom: 20px;">
           <p class="muted-small" style="margin-bottom: 6px;">Proporção da Renda Conjunta neste mês:</p>
@@ -315,15 +357,25 @@ const App = (() => {
         </div>
       </section>
 
+      <!-- DOIS GRÁFICOS LADO A LADO: CATEGORIAS GERAL vs. GASTOS POR PESSOA -->
       <section class="grid-2">
         <div class="card">
-          <div class="card-header"><h2><i class="ti ti-chart-donut"></i> Gastos Gerais (Casal)</h2></div>
+          <div class="card-header"><h2><i class="ti ti-chart-donut"></i> Gastos por Categoria (Geral)</h2></div>
           <div class="chart-box"><canvas id="chart-categoria"></canvas></div>
         </div>
         <div class="card">
-          <div class="card-header"><h2><i class="ti ti-chart-bar"></i> Receitas x Gastos</h2></div>
-          <div class="chart-box"><canvas id="chart-receitas-gastos"></canvas></div>
+          <div class="card-header"><h2><i class="ti ti-users"></i> Gastos por Pessoa (Lucas x Emily)</h2></div>
+          <div class="chart-box"><canvas id="chart-pessoa"></canvas></div>
         </div>
+      </section>
+
+      <!-- GRÁFICO DE EVOLUÇÃO REC x GASTOS NOS ÚLTIMOS 6 MESES DO PERÍODO SELECIONADO -->
+      <section class="card">
+        <div class="card-header">
+          <h2><i class="ti ti-chart-bar"></i> Evolução: Receitas x Gastos</h2>
+          <span class="muted-small">Últimos 6 meses até ${Utils.monthLabel(state.dashboardMonthKey)}</span>
+        </div>
+        <div class="chart-box"><canvas id="chart-receitas-gastos"></canvas></div>
       </section>
     `;
   }
@@ -336,14 +388,21 @@ const App = (() => {
   }
 
   function drawDashboardCharts() {
-    const currentMonth = state.months.find(m => m.key === state.dashboardMonthKey) || { byCategory: {} };
-    Charts.incomeExpenseChart('chart-receitas-gastos', state.months.slice(-6));
+    const currentMonth = state.months.find(m => m.key === state.dashboardMonthKey) || { byCategory: {}, byPerson: {} };
+    
+    // Pega 6 meses terminando no mês visualizado
+    const visibleMonths = Utils.getMonthsUpTo(state.months, state.dashboardMonthKey, 6);
+    
+    Charts.incomeExpenseChart('chart-receitas-gastos', visibleMonths);
     Charts.categoryChart('chart-categoria', currentMonth.byCategory || {});
+    Charts.personChart('chart-pessoa', currentMonth.byPerson || {}, getPeople());
   }
 
-  // ---------- LANÇAMENTOS ----------
+  // ---------- LANÇAMENTOS (Com Navegação Intuitiva de Mês) ----------
 
   function viewLancamentos() {
+    if (!state.filterMonth) state.filterMonth = Utils.currentMonthKey();
+    
     const monthOptions = state.months.map(m => m.key).reverse();
     if (!monthOptions.includes(state.filterMonth)) monthOptions.unshift(state.filterMonth);
 
@@ -354,24 +413,31 @@ const App = (() => {
       .sort((a, b) => b.date.localeCompare(a.date));
 
     return `
-      <section class="view-header">
-        <h1>Lançamentos</h1>
-        <button class="btn btn-primary" id="btn-add-transacao"><i class="ti ti-plus"></i> Novo</button>
+      <section class="view-header" style="justify-content: center; text-align: center; flex-direction: column; margin-bottom: 12px;">
+        <h1 style="font-size: 20px; color: var(--ink-faint);">Lançamentos</h1>
+        <div style="display: flex; align-items: center; gap: 16px; margin-top: 8px;">
+          <button class="icon-btn" data-lanc-nav="-1" style="background: var(--surface-sunken);"><i class="ti ti-chevron-left"></i></button>
+          <h2 style="font-size: 24px; min-width: 200px;">${Utils.monthLabel(state.filterMonth)}</h2>
+          <button class="icon-btn" data-lanc-nav="1" style="background: var(--surface-sunken);"><i class="ti ti-chevron-right"></i></button>
+        </div>
       </section>
 
-      <section class="filters">
-        <select id="filter-month" onchange="App.setFilter('month', this.value)">
-          ${monthOptions.map((k) => `<option value="${k}" ${k === state.filterMonth ? 'selected' : ''}>${Utils.monthLabel(k)}</option>`).join('')}
-        </select>
-        <select id="filter-person" onchange="App.setFilter('person', this.value)">
-          <option value="todos">Todos</option>
-          ${getPeople().map((p) => `<option value="${p.id}" ${state.filterPerson === p.id ? 'selected' : ''}>${p.name}</option>`).join('')}
-        </select>
-        <select id="filter-type" onchange="App.setFilter('type', this.value)">
-          <option value="todos" ${state.filterType === 'todos' ? 'selected' : ''}>Todos</option>
-          <option value="receita" ${state.filterType === 'receita' ? 'selected' : ''}>Receitas</option>
-          <option value="gasto" ${state.filterType === 'gasto' ? 'selected' : ''}>Gastos</option>
-        </select>
+      <section class="filters" style="justify-content: space-between; align-items: center;">
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+          <select id="filter-month" onchange="App.setFilter('month', this.value)">
+            ${monthOptions.map((k) => `<option value="${k}" ${k === state.filterMonth ? 'selected' : ''}>${Utils.monthLabel(k)}</option>`).join('')}
+          </select>
+          <select id="filter-person" onchange="App.setFilter('person', this.value)">
+            <option value="todos">Pessoas: Todas</option>
+            ${getPeople().map((p) => `<option value="${p.id}" ${state.filterPerson === p.id ? 'selected' : ''}>${p.name}</option>`).join('')}
+          </select>
+          <select id="filter-type" onchange="App.setFilter('type', this.value)">
+            <option value="todos" ${state.filterType === 'todos' ? 'selected' : ''}>Tipos: Todos</option>
+            <option value="receita" ${state.filterType === 'receita' ? 'selected' : ''}>Receitas</option>
+            <option value="gasto" ${state.filterType === 'gasto' ? 'selected' : ''}>Gastos</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" id="btn-add-transacao"><i class="ti ti-plus"></i> Novo Lançamento</button>
       </section>
 
       <section class="card">
@@ -385,15 +451,22 @@ const App = (() => {
               ${list.map(rowTransacao).join('')}
             </tbody>
           </table>
-        </div>` : `<div class="empty-state"><i class="ti ti-receipt-off"></i><p>Nenhum registro encontrado.</p></div>`}
+        </div>` : `<div class="empty-state"><i class="ti ti-receipt-off"></i><p>Nenhum registro encontrado para este mês.</p></div>`}
       </section>
     `;
   }
 
+  function changeLancamentosMonth(offset) {
+    let d = new Date(state.filterMonth + '-01T12:00:00');
+    d.setMonth(d.getMonth() + offset);
+    state.filterMonth = d.toISOString().slice(0, 7);
+    renderView();
+  }
+
   function setFilter(type, val) {
-    if(type === 'month') state.filterMonth = val;
-    if(type === 'person') state.filterPerson = val;
-    if(type === 'type') state.filterType = val;
+    if (type === 'month') state.filterMonth = val;
+    if (type === 'person') state.filterPerson = val;
+    if (type === 'type') state.filterType = val;
     renderView();
   }
 
@@ -403,8 +476,8 @@ const App = (() => {
     const method = getPaymentMethods().find(m => m.id === t.paymentMethod);
     
     let desc = t.description || '—';
-    if(t.installmentLabel) desc += ` <span class="muted-small">(${t.installmentLabel})</span>`;
-    if(t.isThirdParty) desc += ` <br><small style="color:var(--warning)">[Terceiro: ${t.thirdPartyName || '?'} | Receber: ${Utils.fmtDate(t.thirdPartyDate)}]</small>`;
+    if (t.installmentLabel) desc += ` <span class="muted-small">(${t.installmentLabel})</span>`;
+    if (t.isThirdParty) desc += ` <br><small style="color:var(--warning)">[Terceiro: ${t.thirdPartyName || '?'} | Receber: ${Utils.fmtDate(t.thirdPartyDate)}]</small>`;
     
     const btnHtml = t.isVirtual 
       ? `<button class="icon-btn" onclick="alert('Lançamento Fixo automático. Edite em Ajustes ou adicione um lançamento manual igual para sobrescrever neste mês.')"><i class="ti ti-lock"></i></button>`
@@ -419,11 +492,7 @@ const App = (() => {
         <td><span class="dot" style="background:${personColor(t.paidBy)}"></span>${personName(t.paidBy)}</td>
         <td>${method ? method.label : '—'}</td>
         <td class="num ${cls}">${sign} ${Utils.fmtBRL(t.amount)}</td>
-        <td class="col-actions" style="position: sticky; right: 0; background: var(--surface); padding-left: 12px; box-shadow: -4px 0 10px rgba(0,0,0,0.02);">
-          <div style="display: flex; justify-content: flex-end; gap: 4px; min-width: 80px;">
-            ${btnHtml}
-          </div>
-        </td>
+        <td class="row-actions col-actions" style="min-width: 96px; display: flex; justify-content: flex-end; gap: 4px; border: none;">${btnHtml}</td>
       </tr>
     `;
   }
@@ -503,7 +572,7 @@ const App = (() => {
     el('#modal-close').addEventListener('click', closeModal);
     el('#modal-overlay').addEventListener('click', (e) => { if (e.target.id === 'modal-overlay') closeModal(); });
 
-    if(!existing) {
+    if (!existing) {
       el('#tx-is-third').addEventListener('change', (e) => {
         el('#third-party-fields').style.display = e.target.checked ? 'grid' : 'none';
       });
@@ -546,10 +615,10 @@ const App = (() => {
         paymentMethod: el('#tx-type').value === 'gasto' ? el('#tx-method').value : null,
       };
       
-      if(!existing) {
+      if (!existing) {
         payload.installments = parseInt(el('#tx-installments').value) || 1;
         payload.isThirdParty = el('#tx-is-third').checked;
-        if(payload.isThirdParty) {
+        if (payload.isThirdParty) {
           payload.thirdPartyName = el('#tx-third-name').value.trim();
           payload.thirdPartyDate = el('#tx-third-date').value;
         }
@@ -892,18 +961,15 @@ const App = (() => {
     if (!param || param === 'null') return;
     
     if (typeof param === 'number') {
-      // Quando clica nas setas do Dashboard (-1 ou 1)
       let d = new Date(state.dashboardMonthKey + '-01T12:00:00');
       d.setMonth(d.getMonth() + param);
       state.dashboardMonthKey = d.toISOString().slice(0, 7);
     } else {
-      // Quando seleciona o mês direto no filtro
       state.dashboardMonthKey = param;
     }
     renderView();
   }
 
-  // Mantenha o return fechando o módulo!
   return { init, changeDashMonth, setFilter, deleteFixed, deleteCard };
 })();
 
