@@ -1,4 +1,5 @@
 [build]
+  SECRETS_SCAN_OMIT_KEYS = "USER1_ROLE,USER2_ROLE"
   functions = "netlify/functions"
   publish = "."
 
