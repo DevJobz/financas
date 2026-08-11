@@ -148,6 +148,26 @@ const App = (() => {
       btn.addEventListener('click', () => { state.view = btn.dataset.view; renderView(); })
     );
     el('#btn-add-fab').addEventListener('click', () => openTransactionModal());
+
+    // COLE O DELEGADOR AQUI!
+    // Agora ele funciona porque o view-container já foi criado no innerHTML acima.
+    el('#view-container').addEventListener('click', async (e) => {
+      const btnEdit = e.target.closest('[data-edit]');
+      if(btnEdit) {
+          openTransactionModal(btnEdit.dataset.edit);
+      }
+
+      const btnDelete = e.target.closest('[data-delete]');
+      if(btnDelete) {
+          if (!confirm('Tem certeza que deseja excluir?')) return;
+          try {
+            await Api.deleteTransaction(btnDelete.dataset.delete);
+            await loadData();
+            renderView();
+            showToast('Lançamento excluído.', 'success');
+          } catch (err) { showToast(err.message, 'danger'); }
+      }
+    });
   }
 
   function setActiveNav() {
@@ -680,20 +700,6 @@ const App = (() => {
     const fType = el('#filter-type');
     if (fType) fType.addEventListener('change', () => { state.filterType = fType.value; renderView(); });
 
-    els('[data-edit]').forEach((btn) => btn.addEventListener('click', () => {
-      const t = state.transactions.find((tx) => tx.id === btn.dataset.edit);
-      if (t) openTransactionModal(t);
-    }));
-    els('[data-delete]').forEach((btn) => btn.addEventListener('click', async () => {
-      if (!confirm('Excluir este lançamento?')) return;
-      try {
-        await Api.deleteTransaction(btn.dataset.delete);
-        await loadData();
-        renderView();
-        showToast('Lançamento excluído.', 'success');
-      } catch (e) { showToast(e.message, 'danger'); }
-    }));
-
     const verAuditoria = el('#btn-ver-auditoria') || el('#btn-ir-auditoria');
     if (verAuditoria) verAuditoria.addEventListener('click', () => { state.view = 'auditoria'; renderView(); });
 
@@ -727,26 +733,6 @@ const App = (() => {
       } catch (err) { showToast(err.message, 'danger'); }
     });
   }
-
-  // Delegador global de eventos para elementos que nascem depois na tela
-  document.getElementById('view-container').addEventListener('click', async (e) => {
-    // Escuta cliques no botão de edição (mesmo que clique no ícone dentro dele)
-    const btnEdit = e.target.closest('[data-edit]');
-    if(btnEdit) {
-        openTransactionModal(btnEdit.dataset.edit);
-    }
-
-    const btnDelete = e.target.closest('[data-delete]');
-    if(btnDelete) {
-        if (!confirm('Tem certeza que deseja excluir?')) return;
-        try {
-          await Api.deleteTransaction(btnDelete.dataset.delete);
-          await loadData();
-          renderView();
-          showToast('Lançamento excluído.', 'success');
-        } catch (err) { showToast(err.message, 'danger'); }
-    }
-  });
   
   // Expõe a função de trocar o mês para o HTML chamar no onClick
   function changeDashMonth(key) {
