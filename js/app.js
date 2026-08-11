@@ -155,20 +155,37 @@ const App = (() => {
     
     el('#btn-add-fab').addEventListener('click', () => openTransactionModal());
 
-    // DELEGADOR GLOBAL DE EVENTOS
+    // DELEGADOR GLOBAL DE EVENTOS (COM CASCATA INTELIGENTE DE EXCLUSÃO)
     el('#view-container').addEventListener('click', async (e) => {
       const btnEdit = e.target.closest('[data-edit]');
       if (btnEdit) openTransactionModal(btnEdit.dataset.edit);
 
       const btnDelete = e.target.closest('[data-delete]');
       if (btnDelete) {
-        if (!confirm('Tem certeza que deseja excluir este lançamento?')) return;
+        const t = state.transactions.find((tx) => tx.id === btnDelete.dataset.delete);
+        let deleteGroup = false;
+
+        if (t && t.groupId) {
+          const choice = confirm(
+            `Este lançamento faz parte do parcelamento "${t.description}".\n\nDeseja excluir TODAS AS PARCELAS deste parcelamento?\n\n• OK: Excluir TODAS as parcelas de uma vez\n• Cancelar: Excluir apenas esta parcela (mês atual)`
+          );
+          if (choice) {
+            deleteGroup = true;
+          } else {
+            if (!confirm('Deseja realmente excluir APENAS esta parcela do mês atual?')) return;
+          }
+        } else {
+          if (!confirm('Tem certeza que deseja excluir este lançamento?')) return;
+        }
+
         try {
-          await Api.deleteTransaction(btnDelete.dataset.delete);
+          await Api.deleteTransaction(btnDelete.dataset.delete, deleteGroup);
           await loadData();
           renderView();
-          showToast('Lançamento excluído.', 'success');
-        } catch (err) { showToast(err.message, 'danger'); }
+          showToast(deleteGroup ? 'Todas as parcelas foram excluídas!' : 'Lançamento excluído.', 'success');
+        } catch (err) {
+          showToast(err.message, 'danger');
+        }
       }
 
       const btnAddTx = e.target.closest('#btn-add-transacao');
@@ -232,7 +249,7 @@ const App = (() => {
 
   function viewDashboard() {
     if (!state.dashboardMonthKey) state.dashboardMonthKey = Utils.currentMonthKey();
-    let currentIdx = state.months.findIndex(m => m.key === state.dashboardMonthKey);
+    let currentIdx = state.months.findIndex((m) => m.key === state.dashboardMonthKey);
     
     const currentMonth = currentIdx !== -1 ? state.months[currentIdx] : { 
       key: state.dashboardMonthKey, 
@@ -364,7 +381,6 @@ const App = (() => {
           <div class="chart-box"><canvas id="chart-categoria"></canvas></div>
         </div>
         <div class="card">
-          <!-- Título dinâmico para não acionar o detector de segredos da Netlify -->
           <div class="card-header"><h2><i class="ti ti-users"></i> Gastos por Pessoa (Comparativo)</h2></div>
           <div class="chart-box"><canvas id="chart-pessoa"></canvas></div>
         </div>
@@ -397,7 +413,7 @@ const App = (() => {
     Charts.personChart('chart-pessoa', currentMonth.byPerson || {}, getPeople());
   }
 
-  // ---------- LANÇAMENTOS (Com Navegação Intuitiva de Mês) ----------
+  // ---------- LANÇAMENTOS ----------
 
   function viewLancamentos() {
     if (!state.filterMonth) state.filterMonth = Utils.currentMonthKey();
@@ -496,10 +512,10 @@ const App = (() => {
     `;
   }
 
-  // ---------- TRANSACTION MODAL ----------
+  // ---------- TRANSACTION MODAL (COM BANNER DE ALTERAÇÃO EM CASCATA) ----------
 
   function openTransactionModal(editId) {
-    const existing = editId ? state.transactions.find(t => t.id === editId) : null;
+    const existing = editId ? state.transactions.find((t) => t.id === editId) : null;
     const type = existing ? existing.type : 'gasto';
     const categories = (state.settings && state.settings.categories && state.settings.categories[type]) || [];
 
@@ -516,13 +532,26 @@ const App = (() => {
               <button type="button" class="seg-btn ${type === 'receita' ? 'active' : ''}" data-tipo="receita">Receita</button>
             </div>
             <input type="hidden" id="tx-type" value="${type}" />
+
+            ${existing && existing.groupId ? `
+            <!-- BANNER DE PROPAGAÇÃO EM CASCATA -->
+            <div style="grid-column: 1 / -1; background: var(--teal-100); color: var(--teal-900); padding: 14px; border-radius: var(--radius-sm); border-left: 4px solid var(--teal-700); margin-bottom: 8px;">
+              <label style="flex-direction: row; align-items: center; gap: 10px; margin: 0; font-weight: 600; color: var(--teal-900); cursor: pointer;">
+                <input type="checkbox" id="tx-update-group" checked style="width: 18px; height: 18px;" />
+                Aplicar alteração a todas as parcelas deste parcelamento
+              </label>
+              <p class="muted-small" style="margin: 4px 0 0 28px; font-size: 12px; color: var(--teal-900);">
+                Ao salvar, a forma de pagamento, categoria, descrição, responsável e valor serão atualizados em todos os meses da série.
+              </p>
+            </div>
+            ` : ''}
             
             <label>Data
               <input type="date" id="tx-date" value="${existing ? existing.date : new Date().toISOString().slice(0, 10)}" required />
             </label>
             <label>Categoria
               <select id="tx-category">
-                ${categories.map(c => `<option value="${c}" ${existing && existing.category === c ? 'selected' : ''}>${c}</option>`).join('')}
+                ${categories.map((c) => `<option value="${c}" ${existing && existing.category === c ? 'selected' : ''}>${c}</option>`).join('')}
               </select>
             </label>
             <label>Descrição
@@ -533,12 +562,12 @@ const App = (() => {
             </label>
             <label>Responsável
               <select id="tx-paidby">
-                ${getPeople().map(p => `<option value="${p.id}" ${(existing ? existing.paidBy : state.user.id) === p.id ? 'selected' : ''}>${p.name}</option>`).join('')}
+                ${getPeople().map((p) => `<option value="${p.id}" ${(existing ? existing.paidBy : state.user.id) === p.id ? 'selected' : ''}>${p.name}</option>`).join('')}
               </select>
             </label>
             <label id="label-payment-method" style="display:${type === 'gasto' ? 'flex' : 'none'};">Forma de pagamento
               <select id="tx-method">
-                ${getPaymentMethods().map(m => `<option value="${m.id}" ${existing && existing.paymentMethod === m.id ? 'selected' : ''}>${m.label}</option>`).join('')}
+                ${getPaymentMethods().map((m) => `<option value="${m.id}" ${existing && existing.paymentMethod === m.id ? 'selected' : ''}>${m.label}</option>`).join('')}
               </select>
             </label>
             
@@ -558,8 +587,13 @@ const App = (() => {
             </div>
             ` : ''}
             
-            <div class="modal-actions" style="grid-column:1/-1;">
-              ${existing ? `<button type="button" class="btn btn-danger-ghost" id="btn-delete-inline"><i class="ti ti-trash"></i> Excluir</button>` : '<span></span>'}
+            <div class="modal-actions" style="grid-column:1/-1; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+              ${existing ? (existing.groupId ? `
+                <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                  <button type="button" class="btn btn-danger-ghost" id="btn-delete-inline" title="Excluir apenas esta parcela do mês"><i class="ti ti-trash"></i> Esta Parcela</button>
+                  <button type="button" class="btn btn-danger-ghost" id="btn-delete-group-inline" style="background:#fcebeb; border:1px solid #a32d2d;" title="Excluir todo o parcelamento"><i class="ti ti-trash-x"></i> Todo Parcelamento</button>
+                </div>
+              ` : `<button type="button" class="btn btn-danger-ghost" id="btn-delete-inline"><i class="ti ti-trash"></i> Excluir</button>`) : '<span></span>'}
               <button type="submit" class="btn btn-primary">${existing ? 'Salvar alterações' : 'Adicionar'}</button>
             </div>
             <p id="tx-error" class="form-error hidden" style="grid-column:1/-1;"></p>
@@ -577,27 +611,43 @@ const App = (() => {
       });
     }
 
-    els('.seg-btn').forEach(btn => btn.addEventListener('click', () => {
-      els('.seg-btn').forEach(b => b.classList.remove('active')); 
+    els('.seg-btn').forEach((btn) => btn.addEventListener('click', () => {
+      els('.seg-btn').forEach((b) => b.classList.remove('active')); 
       btn.classList.add('active');
       
       const newType = btn.dataset.tipo; 
       el('#tx-type').value = newType;
       
       const cats = (state.settings && state.settings.categories && state.settings.categories[newType]) || [];
-      el('#tx-category').innerHTML = cats.map(c => `<option value="${c}">${c}</option>`).join('');
+      el('#tx-category').innerHTML = cats.map((c) => `<option value="${c}">${c}</option>`).join('');
       el('#label-payment-method').style.display = newType === 'gasto' ? 'flex' : 'none';
     }));
 
     if (existing) {
-      el('#btn-delete-inline').addEventListener('click', async () => {
-        if (!confirm('Excluir este lançamento?')) return;
+      // Exclusão de apenas esta parcela do grupo
+      el('#btn-delete-inline')?.addEventListener('click', async () => {
+        const msg = existing.groupId 
+          ? 'Deseja excluir APENAS ESTA PARCELA do mês atual?' 
+          : 'Excluir este lançamento?';
+        if (!confirm(msg)) return;
         try { 
-          await Api.deleteTransaction(existing.id); 
+          await Api.deleteTransaction(existing.id, false); 
           closeModal(); 
           await loadData(); 
           renderView(); 
           showToast('Lançamento excluído.', 'success'); 
+        } catch (e) { showToast(e.message, 'danger'); }
+      });
+
+      // Exclusão de TODAS as parcelas do grupo
+      el('#btn-delete-group-inline')?.addEventListener('click', async () => {
+        if (!confirm(`Deseja excluir TODAS AS PARCELAS do parcelamento "${existing.description}"?`)) return;
+        try {
+          await Api.deleteTransaction(existing.id, true);
+          closeModal();
+          await loadData();
+          renderView();
+          showToast('Todo o parcelamento foi excluído!', 'success');
         } catch (e) { showToast(e.message, 'danger'); }
       });
     }
@@ -631,8 +681,9 @@ const App = (() => {
       
       try {
         if (existing) { 
-          await Api.updateTransaction({ id: existing.id, ...payload }); 
-          showToast('Lançamento atualizado.', 'success'); 
+          const updateGroup = el('#tx-update-group')?.checked || false;
+          await Api.updateTransaction({ id: existing.id, updateGroup, ...payload }); 
+          showToast(updateGroup ? 'Todas as parcelas foram atualizadas!' : 'Lançamento atualizado.', 'success'); 
         } else { 
           await Api.createTransaction(payload); 
           showToast(payload.installments > 1 ? 'Parcelas geradas!' : 'Adicionado.', 'success'); 
@@ -716,8 +767,8 @@ const App = (() => {
     `;
   }
 
-  const ACTION_LABELS = { create: 'criou', update: 'editou', delete: 'excluiu' };
-  const ENTITY_LABELS = { transaction: 'um lançamento', settings: 'as configurações' };
+  const ACTION_LABELS = { create: 'criou', update: 'editou', delete: 'excluiu', update_group: 'atualizou em cascata', delete_group: 'excluiu o parcelamento' };
+  const ENTITY_LABELS = { transaction: 'um lançamento', transaction_group: 'uma série parcelada', settings: 'as configurações' };
 
   function renderAuditoria(log) {
     return `
