@@ -79,6 +79,30 @@ exports.handler = async (event) => {
   // ---------- ATUALIZAR LANÇAMENTO (PUT - COM CASCATA DE GRUPO) ----------
   if (event.httpMethod === 'PUT') {
     const data = JSON.parse(event.body || '{}');
+
+    // --- INÍCIO DO NOVO TRECHO: TRANSFERÊNCIA DE TITULARIDADE (LOTE) ---
+    if (data.updateCardOwner && data.targetPaymentMethod && data.newOwner) {
+      let updatedCount = 0;
+      const now = new Date().toISOString();
+      
+      list.forEach((item, i) => {
+        if (item.paymentMethod === data.targetPaymentMethod) {
+          list[i].paidBy = data.newOwner;
+          list[i].updatedBy = user.name;
+          list[i].updatedAt = now;
+          updatedCount++;
+        }
+      });
+      
+      if (updatedCount > 0) {
+        await writeJSON(STORE, KEY, list);
+        await appendAudit(user, 'update_group', 'transaction_group', data.targetPaymentMethod, { action: 'Transferência de Titularidade' }, { newOwner: data.newOwner, updatedCount });
+      }
+      return { statusCode: 200, headers, body: JSON.stringify({ ok: true, updatedCount }) };
+    }
+    // --- FIM DO NOVO TRECHO ---
+
+    // Mantenha esta linha existente logo abaixo:
     const idx = list.findIndex((t) => t.id === data.id);
     if (idx === -1) return { statusCode: 404, headers, body: JSON.stringify({ error: 'Não encontrado' }) };
 
