@@ -157,11 +157,16 @@ const App = (() => {
     el('#btn-add-fab').addEventListener('click', () => openTransactionModal());
 
     // DELEGADOR GLOBAL DE EVENTOS
-    el('#view-container').addEventListener('click', async (e) => {
-      const btnEdit = e.target.closest('[data-edit]');
-      if (btnEdit) openTransactionModal(btnEdit.dataset.edit);
+      el('#view-container').addEventListener('click', async (e) => {
+        const btnEdit = e.target.closest('[data-edit]');
+        if (btnEdit) openTransactionModal(btnEdit.dataset.edit);
 
-      const btnDelete = e.target.closest('[data-delete]');
+        // --- NOVO TRECHO: GATILHO DO HISTÓRICO ---
+        const btnHistory = e.target.closest('[data-history]');
+        if (btnHistory) openTransactionHistoryModal(btnHistory.dataset.history);
+        // -----------------------------------------
+
+        const btnDelete = e.target.closest('[data-delete]');
       if (btnDelete) {
         const t = state.transactions.find((tx) => tx.id === btnDelete.dataset.delete);
         let deleteGroup = false;
@@ -528,10 +533,11 @@ const App = (() => {
     
     const btnHtml = t.isVirtual 
       ? `<button class="icon-btn" onclick="alert('Lançamento Fixo automático. Edite em Ajustes ou adicione um lançamento manual igual para sobrescrever neste mês.')"><i class="ti ti-lock"></i></button>`
-      : `<button class="icon-btn" data-edit="${t.id}" aria-label="Editar" title="Editar"><i class="ti ti-edit"></i></button>
+      : `<button class="icon-btn" data-history="${t.id}" aria-label="Histórico" title="Ver Histórico"><i class="ti ti-history"></i></button>
+         <button class="icon-btn" data-edit="${t.id}" aria-label="Editar" title="Editar"><i class="ti ti-edit"></i></button>
          <button class="icon-btn" data-delete="${t.id}" aria-label="Excluir" title="Excluir"><i class="ti ti-trash"></i></button>`;
-
-    return `
+    
+         return `
       <tr>
         <td>${Utils.fmtDate(t.date)}</td>
         <td>${t.category}</td>
@@ -740,6 +746,70 @@ const App = (() => {
     el('#modal-root').innerHTML = '';
   }
 
+  // ---------- MODAL DE HISTÓRICO DE LANÇAMENTO ----------
+  
+  async function openTransactionHistoryModal(txId) {
+    el('#modal-root').innerHTML = `
+      <div class="modal-overlay" id="modal-overlay">
+        <div class="modal-sheet">
+          <div class="modal-header">
+            <h2>Buscando histórico...</h2>
+          </div>
+          <div class="empty-state"><i class="ti ti-loader-2"></i></div>
+        </div>
+      </div>
+    `;
+
+    try {
+      const log = await Api.getAudit();
+      const tx = state.transactions.find(t => t.id === txId);
+      
+      // Busca logs pelo ID do lançamento ou pelo ID do grupo de parcelas
+      const targetIds = [txId];
+      if (tx && tx.groupId) targetIds.push(tx.groupId);
+
+      const txLog = log.filter(a => {
+        if (targetIds.includes(a.entityId)) return true;
+        if (a.after && targetIds.includes(a.after.groupId)) return true;
+        if (a.before && targetIds.includes(a.before.groupId)) return true;
+        return false;
+      });
+
+      el('#modal-root').innerHTML = `
+        <div class="modal-overlay" id="modal-overlay">
+          <div class="modal-sheet">
+            <div class="modal-header">
+              <h2>Linha do Tempo</h2>
+              <button class="icon-btn" id="modal-close-hist"><i class="ti ti-x"></i></button>
+            </div>
+            <div style="max-height: 60vh; overflow-y: auto; padding-right: 8px;">
+              ${txLog.length ? `
+              <ul class="audit-list">
+                 ${txLog.map(a => `
+                   <li>
+                     <div class="audit-dot"></div>
+                     <div style="flex: 1;">
+                       <p><strong>${a.userName}</strong> ${ACTION_LABELS[a.action] || a.action}</p>
+                       <p class="muted-small">${Utils.fmtDateTime(a.timestamp)}</p>
+                       ${formatAuditDetails(a)}
+                     </div>
+                   </li>
+                 `).join('')}
+              </ul>` : '<p class="muted-small" style="text-align:center; padding: 20px;">Nenhum histórico estrutural encontrado para este item.</p>'}
+            </div>
+          </div>
+        </div>
+      `;
+
+      el('#modal-close-hist').addEventListener('click', closeModal);
+      el('#modal-overlay').addEventListener('click', (e) => { if (e.target.id === 'modal-overlay') closeModal(); });
+
+    } catch (e) {
+      showToast('Erro ao buscar histórico: ' + e.message, 'danger');
+      closeModal();
+    }
+  }
+
   // ---------- HISTÓRICO MENSAL ----------
 
   function viewHistorico() {
@@ -808,11 +878,73 @@ const App = (() => {
   const ACTION_LABELS = { create: 'criou', update: 'editou', delete: 'excluiu', update_group: 'atualizou em cascata', delete_group: 'excluiu o parcelamento' };
   const ENTITY_LABELS = { transaction: 'um lançamento', transaction_group: 'uma série parcelada', settings: 'as configurações' };
 
+  // --- FUNÇÃO AUXILIAR: COMPARA E FORMATA O ANTES/DEPOIS ---
+  function formatAuditDetails(a) {
+    if (!a.before && !a.after) return '';
+
+    // Verifica se foi aquela transferência de lote em massa (nossa última melhoria)
+    if (a.before && a.before.action === 'Transferência de Titularidade') {
+      return `<div style="margin-top: 8px; font-size: 13px; background: var(--surface-sunken); padding: 10px; border-radius: var(--radius-sm); border: 1px dashed var(--teal-500); color: var(--teal-900);">
+        <strong>Transferência de Titularidade em Lote</strong><br>
+        <span class="muted-small">Novo Responsável:</span> ${personName(a.after.newOwner)}<br>
+        <span class="muted-small">Lançamentos afetados:</span> ${a.after.updatedCount}
+      </div>`;
+    }
+
+    const fieldMap = {
+      amount: 'Valor', description: 'Descrição', category: 'Categoria', date: 'Data', 
+      paidBy: 'Responsável', paymentMethod: 'Forma de Pagto', type: 'Tipo'
+    };
+
+    const formatVal = (key, val) => {
+      if (val === null || val === undefined || val === '') return '—';
+      if (key === 'amount') return Utils.fmtBRL(val);
+      if (key === 'date') return Utils.fmtDate(val);
+      if (key === 'paidBy') return personName(val) || val;
+      if (key === 'paymentMethod') {
+        const pm = getPaymentMethods().find(m => m.id === val);
+        return pm ? pm.label : val;
+      }
+      return val;
+    };
+
+    let html = '<div style="margin-top: 8px; font-size: 13px; background: var(--surface-sunken); padding: 10px; border-radius: var(--radius-sm); border: 1px solid var(--line);">';
+
+    if (a.action === 'create' || a.action === 'delete' || a.action === 'delete_group') {
+      const data = (a.action === 'create' ? a.after : a.before) || {};
+      if (data.description) html += `<div style="margin-bottom:4px"><span class="muted-small">Lançamento:</span> <strong>${data.description}</strong></div>`;
+      if (data.amount !== undefined) html += `<div style="margin-bottom:4px"><span class="muted-small">Valor:</span> <strong>${Utils.fmtBRL(data.amount)}</strong></div>`;
+      if (data.category) html += `<div style="margin-bottom:4px"><span class="muted-small">Categoria:</span> <strong>${data.category}</strong></div>`;
+      if (!data.description && !data.amount) html += '<span class="muted-small">Detalhes estruturais indisponíveis.</span>';
+    } else {
+      const b = a.before || {};
+      const af = a.after || {};
+      let changes = 0;
+      
+      for (const key in af) {
+        if (['id', 'groupId', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy', 'isVirtual'].includes(key)) continue;
+        if (JSON.stringify(b[key]) !== JSON.stringify(af[key])) {
+          changes++;
+          html += `<div style="margin-bottom: 6px; display: flex; align-items: center; flex-wrap: wrap; gap: 6px;">
+            <span class="muted-small" style="min-width: 90px;">${fieldMap[key] || key}:</span>
+            <s style="color: var(--coral-700);">${formatVal(key, b[key])}</s>
+            <i class="ti ti-arrow-right muted-small"></i>
+            <span style="color: var(--teal-700); font-weight: 600;">${formatVal(key, af[key])}</span>
+          </div>`;
+        }
+      }
+      if (changes === 0) html += '<span class="muted-small">Apenas atualizações sistêmicas ou estruturais.</span>';
+    }
+
+    html += '</div>';
+    return html;
+  }
+
   function renderAuditoria(log) {
     return `
       <section class="view-header">
         <h1>Histórico de alterações</h1>
-        <p class="subtitle">Quem mexeu, o quê e quando.</p>
+        <p class="subtitle">Quem mexeu, o quê, quando e como estava antes.</p>
       </section>
       <section class="card">
         ${log.length ? `
@@ -820,9 +952,10 @@ const App = (() => {
           ${log.map((a) => `
             <li>
               <div class="audit-dot"></div>
-              <div>
+              <div style="flex: 1;">
                 <p><strong>${a.userName}</strong> ${ACTION_LABELS[a.action] || a.action} ${ENTITY_LABELS[a.entity] || a.entity}</p>
                 <p class="muted-small">${Utils.fmtDateTime(a.timestamp)}</p>
+                ${formatAuditDetails(a)}
               </div>
             </li>
           `).join('')}
@@ -971,12 +1104,13 @@ const App = (() => {
     `;
   }
 
-  // ---------- MODAL DE EDIÇÃO DE CARTÃO DE CRÉDITO ----------
-
+// ---------- MODAL DE EDIÇÃO DE CARTÃO DE CRÉDITO ----------
+  
   function openCardModal(idx) {
     const c = state.settings.cards[idx];
     if (!c) return;
     const people = (state.settings && state.settings.people) || [];
+    const oldOwner = c.owner || 'u1'; // Guarda o dono atual para comparação
 
     el('#modal-root').innerHTML = `
       <div class="modal-overlay" id="modal-overlay">
@@ -991,7 +1125,7 @@ const App = (() => {
             </label>
             <label>Dono do Cartão
               <select id="edit-c-owner">
-                ${people.map(p => `<option value="${p.id}" ${(c.owner || 'u1') === p.id ? 'selected' : ''}>${p.name}</option>`).join('')}
+                ${people.map(p => `<option value="${p.id}" ${oldOwner === p.id ? 'selected' : ''}>${p.name}</option>`).join('')}
               </select>
             </label>
             <label>Limite (R$)
@@ -1002,7 +1136,7 @@ const App = (() => {
             </label>
             <div class="modal-actions" style="grid-column:1/-1; display:flex; justify-content:flex-end; gap:8px;">
               <button type="button" class="btn btn-ghost" id="btn-cancel-modal">Cancelar</button>
-              <button type="submit" class="btn btn-primary">Salvar Alterações</button>
+              <button type="submit" class="btn btn-primary" id="btn-save-card">Salvar Alterações</button>
             </div>
           </form>
         </div>
@@ -1015,16 +1149,64 @@ const App = (() => {
 
     el('#form-edit-card').addEventListener('submit', async (e) => {
       e.preventDefault();
+      
+      const newOwner = el('#edit-c-owner').value;
+
+      // --- NOVA VALIDAÇÃO DE SEGURANÇA ---
+      if (oldOwner !== newOwner) {
+        const oldPerson = people.find(p => p.id === oldOwner)?.name || 'o dono atual';
+        const newPerson = people.find(p => p.id === newOwner)?.name || 'o novo dono';
+        
+        const msg = `ATENÇÃO: Você está mudando a titularidade deste cartão de ${oldPerson} para ${newPerson}.\n\nIsso transferirá AUTOMATICAMENTE todos os lançamentos passados e futuros deste cartão para ${newPerson}.\n\nTem certeza que deseja continuar?`;
+        
+        if (!confirm(msg)) {
+          return; // Para a execução aqui e mantém o modal aberto se o usuário cancelar
+        }
+      }
+      // -----------------------------------
+
+      const btn = el('#btn-save-card');
+      btn.textContent = 'Salvando...';
+      btn.disabled = true;
+
       const cards = [...(state.settings.cards || [])];
+      
       cards[idx] = {
         ...cards[idx],
         name: el('#edit-c-name').value.trim(),
-        owner: el('#edit-c-owner').value,
+        owner: newOwner,
         limit: parseFloat(el('#edit-c-limit').value) || 0,
         closeDay: parseInt(el('#edit-c-day').value, 10) || 1
       };
-      await saveSettings({ cards });
-      closeModal();
+      
+      try {
+        // 1. Atualiza as configurações do cartão (limite, nome, dono)
+        await saveSettings({ cards });
+
+        // 2. Se a titularidade mudou, transfere todos os lançamentos retroativamente
+        if (oldOwner !== newOwner) {
+          btn.textContent = 'Transferindo...';
+          const cardId = 'card_' + c.id;
+          
+          // Dispara a transferência em lote no backend
+          await Api.updateTransaction({
+            updateCardOwner: true,
+            targetPaymentMethod: cardId,
+            newOwner: newOwner
+          });
+          
+          // Recarrega os dados e a interface
+          await loadData();
+          renderView();
+          showToast('Titularidade e histórico transferidos com sucesso!', 'success');
+        }
+        
+        closeModal();
+      } catch (err) {
+        btn.textContent = 'Salvar Alterações';
+        btn.disabled = false;
+        showToast(err.message, 'danger');
+      }
     });
   }
 
