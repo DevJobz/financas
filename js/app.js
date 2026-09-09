@@ -216,6 +216,40 @@ const App = (() => {
           } catch(err) { showToast(err.message, 'danger'); }
       }
 
+      // 5. Ações Específicas para Lançamentos Fixos (Materialização)
+      const btnVirtualOk = e.target.closest('[data-virtual-ok]');
+      if (btnVirtualOk) {
+          const vId = btnVirtualOk.dataset.virtualOk;
+          const vTx = state.months.flatMap(m => m.items).find(tx => tx.id === vId);
+          if (vTx) {
+              try {
+                  // Cria o lançamento real instantaneamente como OK
+                  await Api.createTransaction({
+                      date: vTx.date, type: vTx.type, category: vTx.category,
+                      description: vTx.description.replace(' (Fixo)', ''), amount: vTx.amount,
+                      paidBy: vTx.paidBy, paymentMethod: vTx.paymentMethod || 'dinheiro',
+                      installments: 1, isThirdParty: false, status: 'ok'
+                  });
+                  await loadData(); renderView(true);
+                  showToast('Lançamento fixo confirmado e salvo!', 'success');
+              } catch (err) { showToast(err.message, 'danger'); }
+          }
+      }
+
+      const btnVirtualDelete = e.target.closest('[data-virtual-delete]');
+      if (btnVirtualDelete) {
+          const vId = btnVirtualDelete.dataset.virtualDelete;
+          const vTx = state.months.flatMap(m => m.items).find(tx => tx.id === vId);
+          if (vTx) App.skipFixedMonth(vTx.fixedRefId, vTx.date.slice(0, 7));
+      }
+
+      const btnVirtualEdit = e.target.closest('[data-virtual-edit]');
+      if (btnVirtualEdit) {
+          const vId = btnVirtualEdit.dataset.virtualEdit;
+          // Abre o modal de confirmação existente que permite mudar o valor apenas daquele mês
+          App.openConfirmFixedModal(vId); 
+      }
+
       const btnEdit = e.target.closest('[data-edit]');
         if (btnEdit) openTransactionModal(btnEdit.dataset.edit);
 
@@ -631,13 +665,20 @@ const App = (() => {
     if (t.installmentLabel) desc += ` <span class="muted-small">(${t.installmentLabel})</span>`;
     if (t.isThirdParty) desc += ` <br><small style="color:var(--warning)">[Terceiro: ${t.thirdPartyName || '?'} | Receber: ${Utils.fmtDate(t.thirdPartyDate)}]</small>`;
     
-    const btnHtml = t.isVirtual 
-      ? `<button class="icon-btn" onclick="App.openConfirmFixedModal('${t.id}')" title="Confirmar Valor neste Mês"><i class="ti ti-check" style="color: var(--teal-500);"></i></button>
-         <button class="icon-btn" onclick="App.skipFixedMonth('${t.fixedRefId}', '${t.date.slice(0, 7)}')" title="Excluir Apenas deste Mês"><i class="ti ti-trash"></i></button>`
-      : `<button class="icon-btn" data-toggle-status="${t.id}" title="${isOk ? 'Reabrir (Marcar como Aberto)' : 'Marcar como OK (Pago/Recebido)'}"><i class="ti ${isOk ? 'ti-circle-check-filled' : 'ti-circle'}" style="color: ${isOk ? 'var(--teal-500)' : 'inherit'}"></i></button>
-         <button class="icon-btn" data-history="${t.id}" aria-label="Histórico" title="Ver Histórico"><i class="ti ti-history"></i></button>
-         <button class="icon-btn" data-edit="${t.id}" aria-label="Editar" title="Editar"><i class="ti ti-edit"></i></button>
-         <button class="icon-btn" data-delete="${t.id}" aria-label="Excluir" title="Excluir"><i class="ti ti-trash"></i></button>`;
+    const isVirtual = t.isVirtual;
+    // Lançamentos virtuais usam seletores de dados exclusivos para interceptarmos o clique
+    const btnToggleId = isVirtual ? `data-virtual-ok="${t.id}"` : `data-toggle-status="${t.id}"`;
+    const btnEditId = isVirtual ? `data-virtual-edit="${t.id}"` : `data-edit="${t.id}"`;
+    const btnDeleteId = isVirtual ? `data-virtual-delete="${t.id}"` : `data-delete="${t.id}"`;
+
+    const btnHtml = `
+      <button class="icon-btn" ${btnToggleId} title="${isOk ? 'Reabrir' : (isVirtual ? 'Confirmar Fixo Rápido (Marcar OK)' : 'Marcar como OK')}">
+        <i class="ti ${isOk ? 'ti-circle-check-filled' : 'ti-circle'}" style="color: ${isOk || isVirtual ? 'var(--teal-500)' : 'inherit'}"></i>
+      </button>
+      ${!isVirtual ? `<button class="icon-btn" data-history="${t.id}" title="Ver Histórico"><i class="ti ti-history"></i></button>` : `<button class="icon-btn" disabled style="opacity:0.3; cursor:not-allowed;" title="Histórico disponível após confirmação do fixo"><i class="ti ti-history"></i></button>`}
+      <button class="icon-btn" ${btnEditId} title="${isVirtual ? 'Editar valor deste mês' : 'Editar'}"><i class="ti ti-edit"></i></button>
+      <button class="icon-btn" ${btnDeleteId} title="${isVirtual ? 'Ocultar fixo apenas deste mês' : 'Excluir'}"><i class="ti ti-trash"></i></button>
+    `;
 
     return `
       <tr style="${rowStyle}">
@@ -1486,8 +1527,8 @@ const App = (() => {
         amount: parseFloat(el('#edit-f-amount').value) || 0,
         person: el('#edit-f-person').value,
         dueDay: parseInt(el('#edit-f-day').value) || 1,
-        startsAt: el('#edit-f-starts.value') || f.startsAt,
-        expiresAt: el('#edit-f-expires').value || null
+        startsAt: el('#edit-f-starts').value || f.startsAt, // Erro de sintaxe corrigido aqui
+        expiresAt: el('#edit-f-expires').value || null // Pode ser alterado e estendido livremente aqui
       };
       await saveSettings({ fixedEntries });
       closeModal();
