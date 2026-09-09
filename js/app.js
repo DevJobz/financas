@@ -10,6 +10,8 @@ const App = (() => {
     filterMonth: null,
     filterPerson: 'todos',
     filterType: 'todos',
+    filterStatus: 'todos', // NOVO: Filtro de OK/Aberto
+    selectedTxs: [],       // NOVO: Guarda os lançamentos selecionados em massa
     editingId: null,
   };
 
@@ -157,8 +159,70 @@ const App = (() => {
     el('#btn-add-fab').addEventListener('click', () => openTransactionModal());
 
     // DELEGADOR GLOBAL DE EVENTOS
-      el('#view-container').addEventListener('click', async (e) => {
-        const btnEdit = e.target.closest('[data-edit]');
+    el('#view-container').addEventListener('click', async (e) => {
+      
+      // 1. Marca/Desmarca Todos os Checkboxes
+      const checkAll = e.target.closest('#check-all-txs');
+      if (checkAll) {
+         const visibleTxs = Array.from(document.querySelectorAll('.tx-check')).map(cb => cb.dataset.checkId);
+         if (checkAll.checked) {
+             visibleTxs.forEach(id => { if (!state.selectedTxs.includes(id)) state.selectedTxs.push(id); });
+         } else {
+             state.selectedTxs = state.selectedTxs.filter(id => !visibleTxs.includes(id));
+         }
+         renderView(true);
+      }
+
+      // 2. Clica em um Checkbox Individual
+      const txCheck = e.target.closest('.tx-check');
+      if (txCheck) {
+         const id = txCheck.dataset.checkId;
+         if (txCheck.checked) {
+             if (!state.selectedTxs.includes(id)) state.selectedTxs.push(id);
+         } else {
+             state.selectedTxs = state.selectedTxs.filter(txId => txId !== id);
+         }
+         renderView(true);
+      }
+
+      // 3. Status Rápido Direto no Botão Redondo (OK/Aberto)
+      const btnToggle = e.target.closest('[data-toggle-status]');
+      if (btnToggle) {
+          const tId = btnToggle.dataset.toggleStatus;
+          const t = state.transactions.find(tx => tx.id === tId);
+          if (t) {
+              const newStatus = t.status === 'ok' ? 'aberto' : 'ok';
+              try {
+                  await Api.updateTransaction({ id: tId, status: newStatus });
+                  await loadData();
+                  renderView(true);
+              } catch (err) { showToast(err.message, 'danger'); }
+          }
+      }
+
+      // 4. Ações em Massa (Os Botões da Barra Azul)
+      const btnBulkOk = e.target.closest('#btn-bulk-ok');
+      const btnBulkAberto = e.target.closest('#btn-bulk-aberto');
+      if (btnBulkOk || btnBulkAberto) {
+          const status = btnBulkOk ? 'ok' : 'aberto';
+          try {
+              // Realiza chamada nativa super segura para o servidor lidar com a massa de dados
+              const token = Auth.getToken();
+              const res = await fetch('/.netlify/functions/transactions', {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                  body: JSON.stringify({ bulkUpdate: true, ids: state.selectedTxs, status })
+              });
+              if (!res.ok) throw new Error('Falha na comunicação com servidor.');
+              
+              state.selectedTxs = [];
+              await loadData();
+              renderView(true);
+              showToast(status === 'ok' ? 'Lançamentos cruzados como OK!' : 'Lançamentos reabertos!', 'success');
+          } catch(err) { showToast(err.message, 'danger'); }
+      }
+
+      const btnEdit = e.target.closest('[data-edit]');
         if (btnEdit) openTransactionModal(btnEdit.dataset.edit);
 
         // --- NOVO TRECHO: GATILHO DO HISTÓRICO ---
@@ -452,17 +516,32 @@ const App = (() => {
 
   // ---------- LANÇAMENTOS ----------
 
+  // ---------- LANÇAMENTOS ----------
+
   function viewLancamentos() {
     if (!state.filterMonth) state.filterMonth = Utils.currentMonthKey();
     
     const monthOptions = state.months.map(m => m.key).reverse();
     if (!monthOptions.includes(state.filterMonth)) monthOptions.unshift(state.filterMonth);
 
-    const filtered = state.months.find(m => m.key === state.filterMonth)?.items || [];
+    const currentMonthData = state.months.find(m => m.key === state.filterMonth) || { saldoInicial: 0, items: [] };
+    
+    // Captura o Saldo Restante que sobrou do mês anterior (Dinâmico por pessoa ou casal)
+    let saldoAnterior = currentMonthData.saldoInicial;
+    if (state.filterPerson !== 'todos' && currentMonthData.personMetrics) {
+      saldoAnterior = currentMonthData.personMetrics[state.filterPerson]?.saldoInicial || 0;
+    }
+
+    const filtered = currentMonthData.items || [];
     const list = filtered
       .filter(t => state.filterPerson === 'todos' || t.paidBy === state.filterPerson)
       .filter(t => state.filterType === 'todos' || t.type === state.filterType)
+      .filter(t => state.filterStatus === 'todos' || (state.filterStatus === 'ok' ? t.status === 'ok' : t.status !== 'ok'))
       .sort((a, b) => b.date.localeCompare(a.date));
+
+    // Lógica para marcar "Check All"
+    const allIds = list.filter(t => !t.isVirtual).map(t => t.id);
+    const isAllChecked = allIds.length > 0 && allIds.every(id => state.selectedTxs.includes(id));
 
     return `
       <section class="view-header" style="justify-content: center; text-align: center; flex-direction: column; margin-bottom: 12px;">
@@ -474,7 +553,7 @@ const App = (() => {
         </div>
       </section>
 
-      <section class="filters" style="justify-content: space-between; align-items: center;">
+      <section class="filters" style="justify-content: space-between; align-items: center; margin-bottom: 14px;">
         <div style="display: flex; gap: 10px; flex-wrap: wrap;">
           <select id="filter-month" onchange="App.setFilter('month', this.value)">
             ${monthOptions.map((k) => `<option value="${k}" ${k === state.filterMonth ? 'selected' : ''}>${Utils.monthLabel(k)}</option>`).join('')}
@@ -488,22 +567,45 @@ const App = (() => {
             <option value="receita" ${state.filterType === 'receita' ? 'selected' : ''}>Receitas</option>
             <option value="gasto" ${state.filterType === 'gasto' ? 'selected' : ''}>Gastos</option>
           </select>
+          <select id="filter-status" onchange="App.setFilter('status', this.value)">
+            <option value="todos" ${state.filterStatus === 'todos' ? 'selected' : ''}>Status: Todos</option>
+            <option value="aberto" ${state.filterStatus === 'aberto' ? 'selected' : ''}>Status: Abertos (Pendentes)</option>
+            <option value="ok" ${state.filterStatus === 'ok' ? 'selected' : ''}>Status: Concluídos (OK)</option>
+          </select>
         </div>
         <button class="btn btn-primary" id="btn-add-transacao"><i class="ti ti-plus"></i> Novo Lançamento</button>
       </section>
+
+      ${state.selectedTxs.length > 0 ? `
+      <div style="background: var(--teal-100); padding: 12px 16px; border-radius: var(--radius-sm); margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; border: 1px solid var(--teal-500);">
+        <span style="color: var(--teal-900); font-weight: 600;"><i class="ti ti-checkbox"></i> ${state.selectedTxs.length} lançamento(s) selecionado(s)</span>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-primary" style="height: 36px; padding: 0 14px; font-size: 13px;" id="btn-bulk-ok"><i class="ti ti-check"></i> Marcar como OK</button>
+          <button class="btn btn-ghost" style="height: 36px; padding: 0 14px; font-size: 13px; background: white;" id="btn-bulk-aberto"><i class="ti ti-arrow-back-up"></i> Reabrir</button>
+        </div>
+      </div>
+      ` : ''}
 
       <section class="card">
         ${list.length ? `
         <div class="table-wrap">
           <table class="data-table">
             <thead>
-              <tr><th>Data</th><th>Categoria</th><th>Descrição</th><th>Quem</th><th>Forma</th><th class="num">Valor</th><th class="col-actions"></th></tr>
+              <tr>
+                <th style="width: 40px; text-align: center;"><input type="checkbox" id="check-all-txs" ${isAllChecked ? 'checked' : ''} style="width: 16px; height: 16px; cursor: pointer;" /></th>
+                <th>Data</th><th>Categoria</th><th>Descrição</th><th>Quem</th><th>Forma</th><th class="num">Valor</th><th class="col-actions"></th>
+              </tr>
             </thead>
             <tbody>
+              <tr style="background: var(--surface-sunken);">
+                <td colspan="6" style="text-align: right; color: var(--ink-faint); font-size: 13px;">Saldo acumulado e vindo do mês anterior:</td>
+                <td class="num ${saldoAnterior >= 0 ? 'positive' : 'negative'}" style="font-weight: 600;">${Utils.fmtBRL(saldoAnterior)}</td>
+                <td class="col-actions" style="background: var(--surface-sunken);"></td>
+              </tr>
               ${list.map(rowTransacao).join('')}
             </tbody>
           </table>
-        </div>` : `<div class="empty-state"><i class="ti ti-receipt-off"></i><p>Nenhum registro encontrado para este mês.</p></div>`}
+        </div>` : `<div class="empty-state"><i class="ti ti-receipt-off"></i><p>Nenhum registro encontrado para este filtro.</p></div>`}
       </section>
     `;
   }
@@ -519,11 +621,15 @@ const App = (() => {
     if (type === 'month') state.filterMonth = val;
     if (type === 'person') state.filterPerson = val;
     if (type === 'type') state.filterType = val;
+    if (type === 'status') state.filterStatus = val;
+    state.selectedTxs = []; // Limpa caixas de seleção ao mudar de filtro
     renderView();
   }
 
   function rowTransacao(t) {
     const sign = t.type === 'receita' ? '+' : '−';
+    const isOk = t.status === 'ok';
+    const rowStyle = isOk ? 'text-decoration: line-through; opacity: 0.55;' : '';
     const cls = t.type === 'receita' ? 'positive' : 'negative';
     const method = getPaymentMethods().find(m => m.id === t.paymentMethod);
     
@@ -533,19 +639,23 @@ const App = (() => {
     
     const btnHtml = t.isVirtual 
       ? `<button class="icon-btn" onclick="alert('Lançamento Fixo automático. Edite em Ajustes ou adicione um lançamento manual igual para sobrescrever neste mês.')"><i class="ti ti-lock"></i></button>`
-      : `<button class="icon-btn" data-history="${t.id}" aria-label="Histórico" title="Ver Histórico"><i class="ti ti-history"></i></button>
+      : `<button class="icon-btn" data-toggle-status="${t.id}" title="${isOk ? 'Reabrir (Marcar como Aberto)' : 'Marcar como OK (Pago/Recebido)'}"><i class="ti ${isOk ? 'ti-circle-check-filled' : 'ti-circle'}" style="color: ${isOk ? 'var(--teal-500)' : 'inherit'}"></i></button>
+         <button class="icon-btn" data-history="${t.id}" aria-label="Histórico" title="Ver Histórico"><i class="ti ti-history"></i></button>
          <button class="icon-btn" data-edit="${t.id}" aria-label="Editar" title="Editar"><i class="ti ti-edit"></i></button>
          <button class="icon-btn" data-delete="${t.id}" aria-label="Excluir" title="Excluir"><i class="ti ti-trash"></i></button>`;
-    
-         return `
-      <tr>
+
+    return `
+      <tr style="${rowStyle}">
+        <td style="text-align: center;">
+          ${!t.isVirtual ? `<input type="checkbox" class="tx-check" data-check-id="${t.id}" ${state.selectedTxs.includes(t.id) ? 'checked' : ''} style="width: 16px; height: 16px; cursor: pointer;" />` : ''}
+        </td>
         <td>${Utils.fmtDate(t.date)}</td>
         <td>${t.category}</td>
         <td>${desc}</td>
         <td><span class="dot" style="background:${personColor(t.paidBy)}"></span>${personName(t.paidBy)}</td>
         <td>${method ? method.label : '—'}</td>
         <td class="num ${cls}">${sign} ${Utils.fmtBRL(t.amount)}</td>
-        <td class="row-actions col-actions" style="min-width: 96px; display: flex; justify-content: flex-end; gap: 4px; border: none;">${btnHtml}</td>
+        <td class="row-actions col-actions" style="min-width: 140px; display: flex; justify-content: flex-end; gap: 4px; border: none;">${btnHtml}</td>
       </tr>
     `;
   }
@@ -882,7 +992,6 @@ const App = (() => {
   function formatAuditDetails(a) {
     if (!a.before && !a.after) return '';
 
-    // Verifica se foi aquela transferência de lote em massa (nossa última melhoria)
     if (a.before && a.before.action === 'Transferência de Titularidade') {
       return `<div style="margin-top: 8px; font-size: 13px; background: var(--surface-sunken); padding: 10px; border-radius: var(--radius-sm); border: 1px dashed var(--teal-500); color: var(--teal-900);">
         <strong>Transferência de Titularidade em Lote</strong><br>
@@ -891,9 +1000,17 @@ const App = (() => {
       </div>`;
     }
 
+    if (a.before && a.before.action === 'Atualização em Massa (Status)') {
+      return `<div style="margin-top: 8px; font-size: 13px; background: var(--surface-sunken); padding: 10px; border-radius: var(--radius-sm); border: 1px solid var(--line); color: var(--ink);">
+        <strong>Alteração de Status em Lote</strong><br>
+        <span class="muted-small">Novo Status Aplicado:</span> ${a.after.status === 'ok' ? 'Concluído (OK)' : 'Em Aberto (Pendente)'}<br>
+        <span class="muted-small">Lançamentos selecionados:</span> ${a.after.count}
+      </div>`;
+    }
+
     const fieldMap = {
       amount: 'Valor', description: 'Descrição', category: 'Categoria', date: 'Data', 
-      paidBy: 'Responsável', paymentMethod: 'Forma de Pagto', type: 'Tipo'
+      paidBy: 'Responsável', paymentMethod: 'Forma de Pagto', type: 'Tipo', status: 'Status (OK/Aberto)'
     };
 
     const formatVal = (key, val) => {
@@ -901,6 +1018,7 @@ const App = (() => {
       if (key === 'amount') return Utils.fmtBRL(val);
       if (key === 'date') return Utils.fmtDate(val);
       if (key === 'paidBy') return personName(val) || val;
+      if (key === 'status') return val === 'ok' ? 'OK (Resolvido)' : 'Em Aberto';
       if (key === 'paymentMethod') {
         const pm = getPaymentMethods().find(m => m.id === val);
         return pm ? pm.label : val;
@@ -910,12 +1028,19 @@ const App = (() => {
 
     let html = '<div style="margin-top: 8px; font-size: 13px; background: var(--surface-sunken); padding: 10px; border-radius: var(--radius-sm); border: 1px solid var(--line);">';
 
+    // NOVA MELHORIA: Captura a data do item para contextualizar o log
+    const txDate = (a.after && a.after.date) || (a.before && a.before.date);
+    if (txDate) {
+      html += `<div style="margin-bottom:6px; padding-bottom:6px; border-bottom:1px dashed var(--line);">
+        <span class="muted-small">Data Ref. do Lançamento:</span> <strong style="color:var(--teal-900); font-size: 14px;">${Utils.fmtDate(txDate)}</strong>
+      </div>`;
+    }
+
     if (a.action === 'create' || a.action === 'delete' || a.action === 'delete_group') {
       const data = (a.action === 'create' ? a.after : a.before) || {};
       if (data.description) html += `<div style="margin-bottom:4px"><span class="muted-small">Lançamento:</span> <strong>${data.description}</strong></div>`;
       if (data.amount !== undefined) html += `<div style="margin-bottom:4px"><span class="muted-small">Valor:</span> <strong>${Utils.fmtBRL(data.amount)}</strong></div>`;
       if (data.category) html += `<div style="margin-bottom:4px"><span class="muted-small">Categoria:</span> <strong>${data.category}</strong></div>`;
-      if (!data.description && !data.amount) html += '<span class="muted-small">Detalhes estruturais indisponíveis.</span>';
     } else {
       const b = a.before || {};
       const af = a.after || {};
