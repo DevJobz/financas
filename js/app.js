@@ -10,7 +10,8 @@ const App = (() => {
     filterMonth: null,
     filterPerson: 'todos',
     filterType: 'todos',
-    filterStatus: 'todos', // NOVO: Filtro de OK/Aberto
+        filterStatus: 'todos', // NOVO: Filtro de OK/Aberto
+    filterSort: 'date_desc', // NOVO: Ordenação da lista de lançamentos
     selectedTxs: [],       // NOVO: Guarda os lançamentos selecionados em massa
     editingId: null,
   };
@@ -548,7 +549,8 @@ const App = (() => {
   // ---------- LANÇAMENTOS ----------
 
   function viewLancamentos() {
-    if (!state.filterMonth) state.filterMonth = Utils.currentMonthKey();
+        if (!state.filterMonth) state.filterMonth = Utils.currentMonthKey();
+    if (!state.filterSort) state.filterSort = 'date_desc';
     
     const monthOptions = state.months.map(m => m.key).reverse();
     if (!monthOptions.includes(state.filterMonth)) monthOptions.unshift(state.filterMonth);
@@ -561,12 +563,14 @@ const App = (() => {
       saldoAnterior = currentMonthData.personMetrics[state.filterPerson]?.saldoInicial || 0;
     }
 
-    const filtered = currentMonthData.items || [];
-    const list = filtered
-      .filter(t => state.filterPerson === 'todos' || t.paidBy === state.filterPerson)
-      .filter(t => state.filterType === 'todos' || t.type === state.filterType)
-      .filter(t => state.filterStatus === 'todos' || (state.filterStatus === 'ok' ? t.status === 'ok' : t.status !== 'ok'))
-      .sort((a, b) => b.date.localeCompare(a.date));
+        const filtered = currentMonthData.items || [];
+    const list = sortLancamentos(
+      filtered
+        .filter(t => state.filterPerson === 'todos' || t.paidBy === state.filterPerson)
+        .filter(t => state.filterType === 'todos' || t.type === state.filterType)
+        .filter(t => state.filterStatus === 'todos' || (state.filterStatus === 'ok' ? t.status === 'ok' : t.status !== 'ok')),
+      state.filterSort
+    );
 
     // Lógica para marcar "Check All"
     const allIds = list.filter(t => !t.isVirtual).map(t => t.id);
@@ -596,10 +600,17 @@ const App = (() => {
             <option value="receita" ${state.filterType === 'receita' ? 'selected' : ''}>Receitas</option>
             <option value="gasto" ${state.filterType === 'gasto' ? 'selected' : ''}>Gastos</option>
           </select>
-          <select id="filter-status" onchange="App.setFilter('status', this.value)">
+                    <select id="filter-status" onchange="App.setFilter('status', this.value)">
             <option value="todos" ${state.filterStatus === 'todos' ? 'selected' : ''}>Status: Todos</option>
             <option value="aberto" ${state.filterStatus === 'aberto' ? 'selected' : ''}>Status: Abertos (Pendentes)</option>
             <option value="ok" ${state.filterStatus === 'ok' ? 'selected' : ''}>Status: Concluídos (OK)</option>
+          </select>
+          <select id="filter-sort" onchange="App.setFilter('sort', this.value)">
+            <option value="date_desc" ${state.filterSort === 'date_desc' ? 'selected' : ''}>Data: Mais recente</option>
+            <option value="date_asc" ${state.filterSort === 'date_asc' ? 'selected' : ''}>Data: Mais antiga</option>
+            <option value="category" ${state.filterSort === 'category' ? 'selected' : ''}>Categoria (agrupado)</option>
+            <option value="value_desc" ${state.filterSort === 'value_desc' ? 'selected' : ''}>Valor: Maior primeiro</option>
+            <option value="value_asc" ${state.filterSort === 'value_asc' ? 'selected' : ''}>Valor: Menor primeiro</option>
           </select>
         </div>
         <button class="btn btn-primary" id="btn-add-transacao"><i class="ti ti-plus"></i> Novo Lançamento</button>
@@ -631,7 +642,7 @@ const App = (() => {
                 <td class="num ${saldoAnterior >= 0 ? 'positive' : 'negative'}" style="font-weight: 600;">${Utils.fmtBRL(saldoAnterior)}</td>
                 <td class="col-actions" style="background: var(--surface-sunken);"></td>
               </tr>
-              ${list.map(rowTransacao).join('')}
+                            ${renderLancamentosRows(list)}
             </tbody>
           </table>
         </div>` : `<div class="empty-state"><i class="ti ti-receipt-off"></i><p>Nenhum registro encontrado para este filtro.</p></div>`}
@@ -646,13 +657,45 @@ const App = (() => {
     renderView();
   }
 
-  function setFilter(type, val) {
+    function setFilter(type, val) {
     if (type === 'month') state.filterMonth = val;
     if (type === 'person') state.filterPerson = val;
     if (type === 'type') state.filterType = val;
     if (type === 'status') state.filterStatus = val;
+    if (type === 'sort') state.filterSort = val;
     state.selectedTxs = []; // Limpa caixas de seleção ao mudar de filtro
     renderView();
+  }
+
+    function sortLancamentos(list, sortKey) {
+    const arr = [...list];
+    switch (sortKey) {
+      case 'date_asc':
+        return arr.sort((a, b) => a.date.localeCompare(b.date));
+      case 'value_desc':
+        return arr.sort((a, b) => b.amount - a.amount);
+      case 'value_asc':
+        return arr.sort((a, b) => a.amount - b.amount);
+      case 'category':
+        return arr.sort((a, b) => (a.category || '').localeCompare(b.category || '') || b.date.localeCompare(a.date));
+      default: // 'date_desc'
+        return arr.sort((a, b) => b.date.localeCompare(a.date));
+    }
+  }
+
+  function renderLancamentosRows(list) {
+    if (state.filterSort !== 'category') return list.map(rowTransacao).join('');
+
+    let html = '';
+    let lastCategory = null;
+    list.forEach((t) => {
+      if (t.category !== lastCategory) {
+        html += `<tr class="category-group-row"><td colspan="8">${t.category || 'Sem categoria'}</td></tr>`;
+        lastCategory = t.category;
+      }
+      html += rowTransacao(t);
+    });
+    return html;
   }
 
   function rowTransacao(t) {
