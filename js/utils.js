@@ -81,18 +81,25 @@ const Utils = (() => {
 
     Object.values(groups).forEach(g => {
       fixedEntries.forEach(fixo => {
+        // NOVO: Verifica se a regra possui um Mês Limite e se já expirou
+        if (fixo.expiresAt && g.key > fixo.expiresAt) return;
+
         const hasRealOverride = g.items.some(t => t.category === fixo.category && t.paidBy === fixo.person && t.type === fixo.type);
         if (!hasRealOverride) {
+          // NOVO: Monta a data oficial injetando o dia escolhido para o vencimento
+          const dueDay = fixo.dueDay ? String(fixo.dueDay).padStart(2, '0') : '01';
+          
           const virtualTx = {
-            id: 'virtual_' + fixo.id,
+            id: 'virtual_' + fixo.id + '_' + g.key,
             isVirtual: true,
-            date: `${g.key}-01`,
+            date: `${g.key}-${dueDay}`,
             type: fixo.type,
             category: fixo.category,
             description: `${fixo.description} (Fixo)`,
             amount: Number(fixo.amount),
             paidBy: fixo.person,
-            paymentMethod: fixo.type === 'gasto' ? 'dinheiro' : null
+            paymentMethod: fixo.type === 'gasto' ? 'dinheiro' : null,
+            status: 'aberto' // Lançamentos virtuais sempre nascem abertos
           };
           g.items.push(virtualTx);
           processTransactionData(g, virtualTx);
