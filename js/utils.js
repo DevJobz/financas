@@ -107,7 +107,10 @@ const Utils = (() => {
         // Permite ocultar/excluir o fixo de um mês específico sem afetar os outros
         if (fixo.skippedMonths && fixo.skippedMonths.includes(g.key)) return;
 
-        const hasRealOverride = g.items.some(t => t.category === fixo.category && t.paidBy === fixo.person && t.type === fixo.type);
+        const hasRealOverride = g.items.some(t =>
+  t.fixedRefId === fixo.id ||
+  (!t.fixedRefId && t.category === fixo.category && t.paidBy === fixo.person && t.type === fixo.type && Number(t.amount) === Number(fixo.amount))
+);
         if (!hasRealOverride) {
           const dueDay = fixo.dueDay ? String(fixo.dueDay).padStart(2, '0') : '01';
           const virtualTx = {
@@ -127,7 +130,7 @@ const Utils = (() => {
           processTransactionData(g, virtualTx);
         }
       });
-      g.items.sort((a, b) => b.date.localeCompare(b.date));
+      g.items.sort((a, b) => a.date.localeCompare(b.date));
     });
 
     const keys = Object.keys(groups).sort();
