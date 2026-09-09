@@ -102,6 +102,28 @@ exports.handler = async (event) => {
     }
     // --- FIM DO NOVO TRECHO ---
 
+    // --- INÍCIO DO NOVO TRECHO: ATUALIZAÇÃO DE STATUS EM MASSA (OK / ABERTO) ---
+    if (data.bulkUpdate && Array.isArray(data.ids) && data.status) {
+      let updatedCount = 0;
+      const now = new Date().toISOString();
+      
+      list.forEach((item, i) => {
+        if (data.ids.includes(item.id)) {
+          list[i].status = data.status;
+          list[i].updatedBy = user.name;
+          list[i].updatedAt = now;
+          updatedCount++;
+        }
+      });
+      
+      if (updatedCount > 0) {
+        await writeJSON(STORE, KEY, list);
+        await appendAudit(user, 'update_group', 'transaction_group', 'bulk', { action: 'Atualização em Massa (Status)' }, { status: data.status, count: updatedCount });
+      }
+      return { statusCode: 200, headers, body: JSON.stringify({ ok: true, updatedCount }) };
+    }
+    // --- FIM DO NOVO TRECHO ---
+
     // Mantenha esta linha existente logo abaixo:
     const idx = list.findIndex((t) => t.id === data.id);
     if (idx === -1) return { statusCode: 404, headers, body: JSON.stringify({ error: 'Não encontrado' }) };
