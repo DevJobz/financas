@@ -139,6 +139,14 @@ button { font-family: inherit; }
 
 .view-container { max-width: 960px; margin: 0 auto; padding: 24px 18px 40px; display: flex; flex-direction: column; gap: 20px; }
 
+/* NOVO: aproveita mais espaço em telas grandes, reduzindo a necessidade de scroll lateral */
+@media (min-width: 1100px) {
+  .view-container { max-width: 1180px; }
+}
+@media (min-width: 1440px) {
+  .view-container { max-width: 1440px; }
+}
+
 .view-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
 .view-header h1 { font-size: 26px; }
 .subtitle { color: var(--ink-faint); font-size: 14px; margin-top: 4px; }
@@ -239,6 +247,15 @@ details[open] summary i { transform: rotate(180deg); transition: 0.2s; }
 .data-table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .data-table th { text-align: left; padding: 10px 12px; color: var(--ink-faint); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.02em; border-bottom: 1.5px solid var(--line); }
 .data-table td { padding: 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+
+/* NOVO: permite que a coluna Descrição quebre linha, evitando que a tabela force scroll horizontal */
+.data-table td:nth-child(4) {
+  white-space: normal;
+  word-break: break-word;
+  min-width: 200px;
+  max-width: 340px;
+}
+
 .data-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .data-table .positive { color: var(--teal-700); }
 .data-table .negative { color: var(--coral-700); }
@@ -300,4 +317,25 @@ details[open] summary i { transform: rotate(180deg); transition: 0.2s; }
   /* Ajuste do Login */
   .login-screen { padding: 16px; align-items: flex-start; padding-top: 10vh; }
   .login-card { padding: 32px 24px; }
+}
+
+/* NOVO: cabeçalho visual de cada grupo quando "Categoria (agrupado)" está selecionado */
+.category-group-row td {
+  background: var(--surface-sunken);
+  color: var(--teal-700);
+  font-weight: 700;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+/* NOVO: em telas pequenas, esconde a coluna "Forma" pra reduzir a largura da tabela */
+@media (max-width: 720px) {
+  .data-table th:nth-child(6),
+  .data-table td:nth-child(6) {
+    display: none;
+  }
 }
