@@ -206,14 +206,8 @@ const App = (() => {
       if (btnBulkOk || btnBulkAberto) {
           const status = btnBulkOk ? 'ok' : 'aberto';
           try {
-              // Realiza chamada nativa super segura para o servidor lidar com a massa de dados
-              const token = Auth.getToken();
-              const res = await fetch('/.netlify/functions/transactions', {
-                  method: 'PUT',
-                  headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                  body: JSON.stringify({ bulkUpdate: true, ids: state.selectedTxs, status })
-              });
-              if (!res.ok) throw new Error('Falha na comunicação com servidor.');
+              // CORREÇÃO: Utilizando a rota oficial do app (que já injeta o token blindado)
+              await Api.updateTransaction({ bulkUpdate: true, ids: state.selectedTxs, status });
               
               state.selectedTxs = [];
               await loadData();
@@ -638,7 +632,8 @@ const App = (() => {
     if (t.isThirdParty) desc += ` <br><small style="color:var(--warning)">[Terceiro: ${t.thirdPartyName || '?'} | Receber: ${Utils.fmtDate(t.thirdPartyDate)}]</small>`;
     
     const btnHtml = t.isVirtual 
-      ? `<button class="icon-btn" onclick="alert('Lançamento Fixo automático. Edite em Ajustes ou adicione um lançamento manual igual para sobrescrever neste mês.')"><i class="ti ti-lock"></i></button>`
+      ? `<button class="icon-btn" onclick="App.openConfirmFixedModal('${t.id}')" title="Confirmar Valor neste Mês"><i class="ti ti-check" style="color: var(--teal-500);"></i></button>
+         <button class="icon-btn" onclick="alert('Lançamento Automático. Clique no ícone de Visto para confirmar/alterar o valor deste mês.')"><i class="ti ti-lock"></i></button>`
       : `<button class="icon-btn" data-toggle-status="${t.id}" title="${isOk ? 'Reabrir (Marcar como Aberto)' : 'Marcar como OK (Pago/Recebido)'}"><i class="ti ${isOk ? 'ti-circle-check-filled' : 'ti-circle'}" style="color: ${isOk ? 'var(--teal-500)' : 'inherit'}"></i></button>
          <button class="icon-btn" data-history="${t.id}" aria-label="Histórico" title="Ver Histórico"><i class="ti ti-history"></i></button>
          <button class="icon-btn" data-edit="${t.id}" aria-label="Editar" title="Editar"><i class="ti ti-edit"></i></button>
@@ -854,6 +849,64 @@ const App = (() => {
 
   function closeModal() {
     el('#modal-root').innerHTML = '';
+  }
+
+  // ---------- MODAL RÁPIDO: CONFIRMAR FIXO NO MÊS ----------
+  function openConfirmFixedModal(txId) {
+    const vTx = state.months.flatMap(m => m.items).find(t => t.id === txId);
+    if (!vTx) return;
+
+    el('#modal-root').innerHTML = `
+      <div class="modal-overlay" id="modal-overlay">
+        <div class="modal-sheet" style="max-width: 420px;">
+          <div class="modal-header">
+            <h2>Confirmar: ${vTx.category}</h2>
+            <button class="icon-btn" id="modal-close"><i class="ti ti-x"></i></button>
+          </div>
+          <form id="form-confirm-fixed" class="form-grid">
+            <p class="muted-small" style="grid-column: 1/-1; margin-bottom: 10px;">Preencha o valor exato deste mês. Ao salvar, ele se tornará um lançamento oficial e resolvido.</p>
+            <label>Data Efetiva (Pagamento/Recebimento)
+              <input type="date" id="cf-date" value="${vTx.date}" required />
+            </label>
+            <label>Valor Real (R$)
+              <input type="number" step="0.01" min="0" id="cf-amount" value="${vTx.amount}" required />
+            </label>
+            <div class="modal-actions" style="grid-column:1/-1; display:flex; justify-content:flex-end; gap:8px; margin-top: 10px;">
+              <button type="button" class="btn btn-ghost" id="btn-cancel-modal">Cancelar</button>
+              <button type="submit" class="btn btn-primary">Confirmar e Lançar</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `;
+
+    el('#modal-close').addEventListener('click', closeModal);
+    el('#btn-cancel-modal').addEventListener('click', closeModal);
+    el('#modal-overlay').addEventListener('click', (e) => { if (e.target.id === 'modal-overlay') closeModal(); });
+
+    el('#form-confirm-fixed').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const payload = {
+        date: el('#cf-date').value,
+        type: vTx.type,
+        category: vTx.category,
+        description: vTx.description.replace(' (Fixo)', ''),
+        amount: parseFloat(el('#cf-amount').value),
+        paidBy: vTx.paidBy,
+        paymentMethod: vTx.paymentMethod || 'dinheiro',
+        installments: 1,
+        isThirdParty: false,
+        status: 'ok' // Entra marcado como OK para facilitar!
+      };
+      
+      try {
+        await Api.createTransaction(payload);
+        closeModal();
+        await loadData();
+        renderView();
+        showToast('Lançamento fixo confirmado para este mês!', 'success');
+      } catch (err) { showToast(err.message, 'danger'); }
+    });
   }
 
   // ---------- MODAL DE HISTÓRICO DE LANÇAMENTO ----------
@@ -1102,12 +1155,12 @@ const App = (() => {
       
       <section class="card">
         <div class="card-header"><h2><i class="ti ti-pin"></i> Lançamentos Fixos Recorrentes</h2></div>
-        <p class="muted-small" style="margin-bottom:12px;">Cadastre salários, aluguéis e contas fixas. Eles serão preenchidos automaticamente todo mês.</p>
+        <p class="muted-small" style="margin-bottom:12px;">Cadastre salários, aluguéis e contas. Eles aparecerão automaticamente todo mês até expirarem.</p>
         
         <div class="table-wrap" style="margin-bottom:16px;">
           <table class="data-table">
             <thead>
-              <tr><th>Tipo</th><th>Descrição</th><th>Pessoa</th><th class="num">Valor</th><th></th></tr>
+              <tr><th>Tipo</th><th>Descrição</th><th>Pessoa</th><th class="num">Valor M.</th><th>Venc.</th><th>Fim</th><th></th></tr>
             </thead>
             <tbody>
               ${fixedEntries.map((f, i) => `
@@ -1116,12 +1169,14 @@ const App = (() => {
                 <td>${f.description} <small>(${f.category})</small></td>
                 <td>${personName(f.person)}</td>
                 <td class="num">${Utils.fmtBRL(f.amount)}</td>
+                <td>Dia ${f.dueDay || '1'}</td>
+                <td>${f.expiresAt ? Utils.monthLabelShort(f.expiresAt) : 'Sem fim'}</td>
                 <td class="row-actions">
                   <button type="button" class="icon-btn" onclick="App.openFixedModal(${i})" title="Editar Fixo"><i class="ti ti-edit"></i></button>
                   <button type="button" class="icon-btn" onclick="App.deleteFixed(${i})" title="Excluir Fixo"><i class="ti ti-trash"></i></button>
                 </td>
               </tr>`).join('')}
-              ${fixedEntries.length === 0 ? '<tr><td colspan="5" class="empty-state">Nenhum lançamento fixo cadastrado.</td></tr>' : ''}
+              ${fixedEntries.length === 0 ? '<tr><td colspan="7" class="empty-state">Nenhum lançamento fixo cadastrado.</td></tr>' : ''}
             </tbody>
           </table>
         </div>
@@ -1142,7 +1197,7 @@ const App = (() => {
           <label>Descrição
             <input type="text" id="cfg-f-desc" required/>
           </label>
-          <label>Valor (R$)
+          <label>Valor Médio (R$)
             <input type="number" step="0.01" id="cfg-f-amount" required/>
           </label>
           <label>Pessoa
@@ -1150,7 +1205,13 @@ const App = (() => {
               ${people.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}
             </select>
           </label>
-          <button type="submit" class="btn btn-primary" style="align-self:end;">Adicionar Fixo</button>
+          <label>Dia Venc.
+            <input type="number" min="1" max="31" id="cfg-f-day" value="1" required/>
+          </label>
+          <label>Válido Até (Opcional)
+            <input type="month" id="cfg-f-expires" title="Deixe em branco para repetir para sempre"/>
+          </label>
+          <button type="submit" class="btn btn-primary" style="align-self:end;">Adicionar</button>
         </form>
       </section>
 
@@ -1225,6 +1286,12 @@ const App = (() => {
         <button class="btn btn-ghost" id="btn-ir-auditoria" style="margin-top: 10px;">
           <i class="ti ti-list-search"></i> Ver histórico de alterações
         </button>
+      </section>
+
+      <section class="card">
+        <div class="card-header"><h2><i class="ti ti-download"></i> Backup e Exportação</h2></div>
+        <p class="muted-small" style="margin-bottom: 12px;">Baixe todos os seus lançamentos em formato Excel (CSV) para guardar como segurança ou criar análises externas.</p>
+        <button type="button" class="btn btn-ghost" id="btn-export-csv" style="border: 1px solid var(--line);"><i class="ti ti-file-spreadsheet"></i> Exportar Dados (CSV)</button>
       </section>
     `;
   }
@@ -1373,6 +1440,12 @@ const App = (() => {
                 ${people.map(p => `<option value="${p.id}" ${(f.person || 'u1') === p.id ? 'selected' : ''}>${p.name}</option>`).join('')}
               </select>
             </label>
+            <label>Dia Venc.
+              <input type="number" min="1" max="31" id="edit-f-day" value="${f.dueDay || 1}" required />
+            </label>
+            <label>Válido Até (Opcional)
+              <input type="month" id="edit-f-expires" value="${f.expiresAt || ''}" title="Deixe em branco para repetir para sempre" />
+            </label>
             <div class="modal-actions" style="grid-column:1/-1; display:flex; justify-content:flex-end; gap:8px;">
               <button type="button" class="btn btn-ghost" id="btn-cancel-modal">Cancelar</button>
               <button type="submit" class="btn btn-primary">Salvar Alterações</button>
@@ -1401,7 +1474,9 @@ const App = (() => {
         category: el('#edit-f-cat').value,
         description: el('#edit-f-desc').value.trim(),
         amount: parseFloat(el('#edit-f-amount').value) || 0,
-        person: el('#edit-f-person').value
+        person: el('#edit-f-person').value,
+        dueDay: parseInt(el('#edit-f-day').value) || 1,
+        expiresAt: el('#edit-f-expires').value || null
       };
       await saveSettings({ fixedEntries });
       closeModal();
@@ -1424,9 +1499,32 @@ const App = (() => {
         category: el('#cfg-f-cat').value,
         description: el('#cfg-f-desc').value.trim(), 
         amount: parseFloat(el('#cfg-f-amount').value), 
-        person: el('#cfg-f-person').value
+        person: el('#cfg-f-person').value,
+        dueDay: parseInt(el('#cfg-f-day').value) || 1,
+        expiresAt: el('#cfg-f-expires').value || null
       });
       await saveSettings({ fixedEntries });
+    });
+
+    el('#btn-export-csv')?.addEventListener('click', () => {
+      const rows = [ ['Data', 'Tipo', 'Categoria', 'Descrição', 'Quem', 'Forma Pagto', 'Valor', 'Status'] ];
+      state.transactions.forEach(t => {
+        rows.push([
+          t.date, t.type, t.category, 
+          `"${(t.description || '').replace(/"/g, '""')}"`, 
+          personName(t.paidBy), t.paymentMethod || '', 
+          t.amount, t.status === 'ok' ? 'OK' : 'Aberto'
+        ]);
+      });
+      // \uFEFF força ferramentas como o Excel a ler os acentos brasileiros perfeitamente
+      const csvContent = "data:text/csv;charset=utf-8,\uFEFF" + rows.map(e => e.join(";")).join("\n");
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement("a");
+      link.setAttribute("href", encodedUri);
+      link.setAttribute("download", `financas_backup_${new Date().toISOString().slice(0,10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
     });
 
     el('#form-card')?.addEventListener('submit', async (e) => {
@@ -1521,7 +1619,8 @@ const App = (() => {
     deleteFixed, 
     deleteCard, 
     openCardModal, 
-    openFixedModal 
+    openFixedModal,
+    openConfirmFixedModal
   };
 })();
 
