@@ -225,11 +225,12 @@ const App = (() => {
               try {
                   // Cria o lançamento real instantaneamente como OK
                   await Api.createTransaction({
-                      date: vTx.date, type: vTx.type, category: vTx.category,
-                      description: vTx.description.replace(' (Fixo)', ''), amount: vTx.amount,
-                      paidBy: vTx.paidBy, paymentMethod: vTx.paymentMethod || 'dinheiro',
-                      installments: 1, isThirdParty: false, status: 'ok'
-                  });
+    date: vTx.date, type: vTx.type, category: vTx.category,
+    description: vTx.description.replace(' (Fixo)', ''), amount: vTx.amount,
+    paidBy: vTx.paidBy, paymentMethod: vTx.paymentMethod || 'dinheiro',
+    installments: 1, isThirdParty: false, status: 'ok',
+    fixedRefId: vTx.fixedRefId
+});
                   await loadData(); renderView(true);
                   showToast('Lançamento fixo confirmado e salvo!', 'success');
               } catch (err) { showToast(err.message, 'danger'); }
@@ -934,10 +935,11 @@ const App = (() => {
         description: vTx.description.replace(' (Fixo)', ''),
         amount: parseFloat(el('#cf-amount').value),
         paidBy: vTx.paidBy,
-        paymentMethod: vTx.paymentMethod || 'dinheiro',
+                paymentMethod: vTx.paymentMethod || 'dinheiro',
         installments: 1,
         isThirdParty: false,
-        status: 'ok' // Entra marcado como OK para facilitar!
+        status: 'ok', // Entra marcado como OK para facilitar!
+        fixedRefId: vTx.fixedRefId
       };
       
       try {
