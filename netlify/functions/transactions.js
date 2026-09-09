@@ -49,7 +49,7 @@ exports.handler = async (event) => {
       let txDate = new Date(data.date);
       txDate.setMonth(txDate.getMonth() + i);
 
-      const item = {
+            const item = {
         id: crypto.randomUUID(),
         groupId: groupId,
         installmentLabel: installments > 1 ? `${i + 1}/${installments}` : null,
@@ -63,6 +63,8 @@ exports.handler = async (event) => {
         amount: Number(data.amount),
         paidBy: data.paidBy || user.sub,
         paymentMethod: data.paymentMethod || 'outro',
+        status: data.status || 'aberto',
+        fixedRefId: data.fixedRefId || null,
         createdBy: user.name,
         createdAt: now,
         updatedAt: now,
