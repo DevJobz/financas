@@ -29,7 +29,7 @@ const Utils = (() => {
   
   const currentMonthKey = () => new Date().toISOString().slice(0, 7);
 
-  // MOTOR DE MESES: Calcula histórico, saldos acumulados (geral e individual) e separa gastos por pessoa
+// MOTOR DE MESES: Calcula histórico, saldos acumulados e separa gastos por pessoa
   function buildMonthlySummary(transactions, settings) {
     const groups = {};
     const fixedEntries = (settings && settings.fixedEntries) || [];
@@ -44,6 +44,18 @@ const Utils = (() => {
       if (d > maxDate) maxDate = d;
     });
     
+    // Garante que o gerador cubra o intervalo de Início e Fim dos lançamentos fixos
+    fixedEntries.forEach(fixo => {
+      if (fixo.startsAt) {
+        const dStart = new Date(fixo.startsAt + '-01T12:00:00');
+        if (dStart < minDate) minDate = dStart;
+      }
+      if (fixo.expiresAt) {
+        const dExp = new Date(fixo.expiresAt + '-01T12:00:00');
+        if (dExp > maxDate) maxDate = dExp;
+      }
+    });
+
     minDate.setDate(1);
     
     let futureLimit = new Date();
@@ -81,17 +93,19 @@ const Utils = (() => {
 
     Object.values(groups).forEach(g => {
       fixedEntries.forEach(fixo => {
-        // NOVO: Verifica se a regra possui um Mês Limite e se já expirou
+        // Validação estrita de Mês Início e Mês Fim
+        if (fixo.startsAt && g.key < fixo.startsAt) return;
         if (fixo.expiresAt && g.key > fixo.expiresAt) return;
+        // Permite ocultar/excluir o fixo de um mês específico sem afetar os outros
+        if (fixo.skippedMonths && fixo.skippedMonths.includes(g.key)) return;
 
         const hasRealOverride = g.items.some(t => t.category === fixo.category && t.paidBy === fixo.person && t.type === fixo.type);
         if (!hasRealOverride) {
-          // NOVO: Monta a data oficial injetando o dia escolhido para o vencimento
           const dueDay = fixo.dueDay ? String(fixo.dueDay).padStart(2, '0') : '01';
-          
           const virtualTx = {
             id: 'virtual_' + fixo.id + '_' + g.key,
             isVirtual: true,
+            fixedRefId: fixo.id,
             date: `${g.key}-${dueDay}`,
             type: fixo.type,
             category: fixo.category,
@@ -99,13 +113,13 @@ const Utils = (() => {
             amount: Number(fixo.amount),
             paidBy: fixo.person,
             paymentMethod: fixo.type === 'gasto' ? 'dinheiro' : null,
-            status: 'aberto' // Lançamentos virtuais sempre nascem abertos
+            status: 'aberto'
           };
           g.items.push(virtualTx);
           processTransactionData(g, virtualTx);
         }
       });
-      g.items.sort((a, b) => b.date.localeCompare(a.date));
+      g.items.sort((a, b) => b.date.localeCompare(b.date));
     });
 
     const keys = Object.keys(groups).sort();
@@ -116,14 +130,12 @@ const Utils = (() => {
     return keys.map((key) => {
       const g = groups[key];
       
-      // Cálculo Geral do Casal
       const saldoInicial = runningTotal;
       const entradasTotais = saldoInicial + g.receitas;
       const despesasTotais = g.gastos;
       const saldoRestante = entradasTotais - despesasTotais;
       runningTotal = saldoRestante;
 
-      // Cálculo Individual por Pessoa (Permite filtrar os cards no Início)
       const personMetrics = {};
       people.forEach(p => {
         const pId = p.id;
