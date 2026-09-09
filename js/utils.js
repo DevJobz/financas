@@ -58,8 +58,16 @@ const Utils = (() => {
 
     minDate.setDate(1);
     
+    // NOVO: Expande o calendário para cobrir todos os lançamentos fixos futuros
     let futureLimit = new Date();
-    futureLimit.setMonth(futureLimit.getMonth() + 6);
+    futureLimit.setMonth(futureLimit.getMonth() + 12); // Puxa no mínimo 1 ano para frente
+
+    fixedEntries.forEach(fixo => {
+      if (fixo.expiresAt) {
+        const dExp = new Date(fixo.expiresAt + '-01T12:00:00');
+        if (dExp > futureLimit) futureLimit = dExp;
+      }
+    });
     
     if (maxDate < futureLimit) {
       maxDate = futureLimit;
