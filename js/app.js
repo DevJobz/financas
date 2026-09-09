@@ -633,7 +633,7 @@ const App = (() => {
     
     const btnHtml = t.isVirtual 
       ? `<button class="icon-btn" onclick="App.openConfirmFixedModal('${t.id}')" title="Confirmar Valor neste Mês"><i class="ti ti-check" style="color: var(--teal-500);"></i></button>
-         <button class="icon-btn" onclick="alert('Lançamento Automático. Clique no ícone de Visto para confirmar/alterar o valor deste mês.')"><i class="ti ti-lock"></i></button>`
+         <button class="icon-btn" onclick="App.skipFixedMonth('${t.fixedRefId}', '${t.date.slice(0, 7)}')" title="Excluir Apenas deste Mês"><i class="ti ti-trash"></i></button>`
       : `<button class="icon-btn" data-toggle-status="${t.id}" title="${isOk ? 'Reabrir (Marcar como Aberto)' : 'Marcar como OK (Pago/Recebido)'}"><i class="ti ${isOk ? 'ti-circle-check-filled' : 'ti-circle'}" style="color: ${isOk ? 'var(--teal-500)' : 'inherit'}"></i></button>
          <button class="icon-btn" data-history="${t.id}" aria-label="Histórico" title="Ver Histórico"><i class="ti ti-history"></i></button>
          <button class="icon-btn" data-edit="${t.id}" aria-label="Editar" title="Editar"><i class="ti ti-edit"></i></button>
@@ -1041,7 +1041,7 @@ const App = (() => {
   const ACTION_LABELS = { create: 'criou', update: 'editou', delete: 'excluiu', update_group: 'atualizou em cascata', delete_group: 'excluiu o parcelamento' };
   const ENTITY_LABELS = { transaction: 'um lançamento', transaction_group: 'uma série parcelada', settings: 'as configurações' };
 
-  // --- FUNÇÃO AUXILIAR: COMPARA E FORMATA O ANTES/DEPOIS ---
+// --- FUNÇÃO AUXILIAR: COMPARA E FORMATA O ANTES/DEPOIS ---
   function formatAuditDetails(a) {
     if (!a.before && !a.after) return '';
 
@@ -1063,11 +1063,16 @@ const App = (() => {
 
     const fieldMap = {
       amount: 'Valor', description: 'Descrição', category: 'Categoria', date: 'Data', 
-      paidBy: 'Responsável', paymentMethod: 'Forma de Pagto', type: 'Tipo', status: 'Status (OK/Aberto)'
+      paidBy: 'Responsável', paymentMethod: 'Forma de Pagto', type: 'Tipo', status: 'Status (OK/Aberto)',
+      fixedEntries: 'Lançamentos Fixos', cards: 'Cartões', people: 'Pessoas'
     };
 
     const formatVal = (key, val) => {
       if (val === null || val === undefined || val === '') return '—';
+      if (typeof val === 'object') {
+        if (Array.isArray(val)) return `${val.length} item(ns) configurado(s)`;
+        return JSON.stringify(val).replace(/[{}]/g, '').replace(/"/g, '');
+      }
       if (key === 'amount') return Utils.fmtBRL(val);
       if (key === 'date') return Utils.fmtDate(val);
       if (key === 'paidBy') return personName(val) || val;
@@ -1081,7 +1086,6 @@ const App = (() => {
 
     let html = '<div style="margin-top: 8px; font-size: 13px; background: var(--surface-sunken); padding: 10px; border-radius: var(--radius-sm); border: 1px solid var(--line);">';
 
-    // NOVA MELHORIA: Captura a data do item para contextualizar o log
     const txDate = (a.after && a.after.date) || (a.before && a.before.date);
     if (txDate) {
       html += `<div style="margin-bottom:6px; padding-bottom:6px; border-bottom:1px dashed var(--line);">
@@ -1111,7 +1115,7 @@ const App = (() => {
           </div>`;
         }
       }
-      if (changes === 0) html += '<span class="muted-small">Apenas atualizações sistêmicas ou estruturais.</span>';
+      if (changes === 0) html += '<span class="muted-small">Atualização de ajustes gerais do sistema.</span>';
     }
 
     html += '</div>';
@@ -1155,12 +1159,12 @@ const App = (() => {
       
       <section class="card">
         <div class="card-header"><h2><i class="ti ti-pin"></i> Lançamentos Fixos Recorrentes</h2></div>
-        <p class="muted-small" style="margin-bottom:12px;">Cadastre salários, aluguéis e contas. Eles aparecerão automaticamente todo mês até expirarem.</p>
+        <p class="muted-small" style="margin-bottom:12px;">Defina o período de vigência (Início e Fim). Se apagar a regra, os itens já marcados como OK continuarão salvos nos lançamentos.</p>
         
         <div class="table-wrap" style="margin-bottom:16px;">
           <table class="data-table">
             <thead>
-              <tr><th>Tipo</th><th>Descrição</th><th>Pessoa</th><th class="num">Valor M.</th><th>Venc.</th><th>Fim</th><th></th></tr>
+              <tr><th>Tipo</th><th>Descrição</th><th>Pessoa</th><th class="num">Valor M.</th><th>Início</th><th>Fim</th><th></th></tr>
             </thead>
             <tbody>
               ${fixedEntries.map((f, i) => `
@@ -1169,8 +1173,8 @@ const App = (() => {
                 <td>${f.description} <small>(${f.category})</small></td>
                 <td>${personName(f.person)}</td>
                 <td class="num">${Utils.fmtBRL(f.amount)}</td>
-                <td>Dia ${f.dueDay || '1'}</td>
-                <td>${f.expiresAt ? Utils.monthLabelShort(f.expiresAt) : 'Sem fim'}</td>
+                <td>${f.startsAt ? Utils.monthLabelShort(f.startsAt) : 'Início'}</td>
+                <td>${f.expiresAt ? Utils.monthLabelShort(f.expiresAt) : 'Indeterminado'}</td>
                 <td class="row-actions">
                   <button type="button" class="icon-btn" onclick="App.openFixedModal(${i})" title="Editar Fixo"><i class="ti ti-edit"></i></button>
                   <button type="button" class="icon-btn" onclick="App.deleteFixed(${i})" title="Excluir Fixo"><i class="ti ti-trash"></i></button>
@@ -1208,10 +1212,13 @@ const App = (() => {
           <label>Dia Venc.
             <input type="number" min="1" max="31" id="cfg-f-day" value="1" required/>
           </label>
-          <label>Válido Até (Opcional)
-            <input type="month" id="cfg-f-expires" title="Deixe em branco para repetir para sempre"/>
+          <label>Mês Início
+            <input type="month" id="cfg-f-starts" value="${Utils.currentMonthKey()}" required/>
           </label>
-          <button type="submit" class="btn btn-primary" style="align-self:end;">Adicionar</button>
+          <label>Mês Fim (Opcional)
+            <input type="month" id="cfg-f-expires" title="Deixe em branco para repetir sem prazo final"/>
+          </label>
+          <button type="submit" class="btn btn-primary" style="align-self:end;">Adicionar Fixo</button>
         </form>
       </section>
 
@@ -1443,8 +1450,11 @@ const App = (() => {
             <label>Dia Venc.
               <input type="number" min="1" max="31" id="edit-f-day" value="${f.dueDay || 1}" required />
             </label>
-            <label>Válido Até (Opcional)
-              <input type="month" id="edit-f-expires" value="${f.expiresAt || ''}" title="Deixe em branco para repetir para sempre" />
+            <label>Mês Início
+              <input type="month" id="edit-f-starts" value="${f.startsAt || Utils.currentMonthKey()}" required />
+            </label>
+            <label>Mês Fim (Opcional)
+              <input type="month" id="edit-f-expires" value="${f.expiresAt || ''}" title="Deixe em branco para repetir sem prazo final" />
             </label>
             <div class="modal-actions" style="grid-column:1/-1; display:flex; justify-content:flex-end; gap:8px;">
               <button type="button" class="btn btn-ghost" id="btn-cancel-modal">Cancelar</button>
@@ -1476,6 +1486,7 @@ const App = (() => {
         amount: parseFloat(el('#edit-f-amount').value) || 0,
         person: el('#edit-f-person').value,
         dueDay: parseInt(el('#edit-f-day').value) || 1,
+        startsAt: el('#edit-f-starts.value') || f.startsAt,
         expiresAt: el('#edit-f-expires').value || null
       };
       await saveSettings({ fixedEntries });
@@ -1501,6 +1512,7 @@ const App = (() => {
         amount: parseFloat(el('#cfg-f-amount').value), 
         person: el('#cfg-f-person').value,
         dueDay: parseInt(el('#cfg-f-day').value) || 1,
+        startsAt: el('#cfg-f-starts').value || Utils.currentMonthKey(),
         expiresAt: el('#cfg-f-expires').value || null
       });
       await saveSettings({ fixedEntries });
@@ -1568,6 +1580,18 @@ const App = (() => {
     await saveSettings({ fixedEntries });
   }
 
+  async function skipFixedMonth(fixedRefId, monthKeyStr) {
+    if (!confirm(`Deseja remover este lançamento fixo apenas para o mês de ${Utils.monthLabel(monthKeyStr)}?`)) return;
+    const fixedEntries = [...(state.settings.fixedEntries || [])];
+    const idx = fixedEntries.findIndex(f => f.id === fixedRefId);
+    if (idx !== -1) {
+      const skipped = fixedEntries[idx].skippedMonths || [];
+      if (!skipped.includes(monthKeyStr)) skipped.push(monthKeyStr);
+      fixedEntries[idx].skippedMonths = skipped;
+      await saveSettings({ fixedEntries });
+    }
+  }
+
   async function deleteCard(idx) {
     if (!confirm('Deseja excluir este cartão?')) return;
     const cards = [...state.settings.cards]; 
@@ -1620,7 +1644,8 @@ const App = (() => {
     deleteCard, 
     openCardModal, 
     openFixedModal,
-    openConfirmFixedModal
+    openConfirmFixedModal,
+    skipFixedMonth
   };
 })();
 
