@@ -149,6 +149,7 @@ const App = (() => {
       </div>
       <div id="modal-root"></div>
       <div id="toast-root" class="toast-root"></div>
+      <div id="chat-root"></div> <!-- NOVO CONTAINER DO CHAT -->
     `;
 
     el('#btn-logout').addEventListener('click', Auth.logout);
@@ -156,8 +157,9 @@ const App = (() => {
     els('.nav-item[data-view]').forEach((btn) =>
       btn.addEventListener('click', () => { state.view = btn.dataset.view; renderView(); })
     );
-    
     el('#btn-add-fab').addEventListener('click', () => openTransactionModal());
+    
+    initChatUI(); // INICIALIZA O CHAT
 
     // DELEGADOR GLOBAL DE EVENTOS
     el('#view-container').addEventListener('click', async (e) => {
@@ -1719,6 +1721,98 @@ const App = (() => {
       state.dashboardMonthKey = param;
     }
     renderView();
+  }
+
+  // ---------- INTEGRAÇÃO DE IA (GEMINI) ----------
+  
+  let chatHistory = [];
+  
+  function initChatUI() {
+    const root = el('#chat-root');
+    root.innerHTML = `
+      <button class="chat-fab" id="btn-toggle-chat"><i class="ti ti-sparkles"></i></button>
+      <div class="chat-modal" id="chat-modal">
+        <div class="chat-header">
+          <span><i class="ti ti-sparkles"></i> Assistente Financeiro</span>
+          <i class="ti ti-x" id="btn-close-chat"></i>
+        </div>
+        <div class="chat-body" id="chat-messages">
+          <div class="chat-bubble ai">Olá! Posso te ajudar a registrar gastos, conferir balanços ou excluir lançamentos se algo deu errado. O que manda hoje?</div>
+        </div>
+        <form class="chat-input-area" id="chat-form">
+          <input type="text" id="chat-input" placeholder="Pergunte algo ou registre um gasto..." autocomplete="off" />
+          <button type="submit" id="chat-submit"><i class="ti ti-send"></i></button>
+        </form>
+      </div>
+    `;
+
+    const chatModal = el('#chat-modal');
+    el('#btn-toggle-chat').addEventListener('click', () => chatModal.classList.toggle('open'));
+    el('#btn-close-chat').addEventListener('click', () => chatModal.classList.remove('open'));
+
+    el('#chat-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const input = el('#chat-input');
+      const msg = input.value.trim();
+      if (!msg) return;
+
+      appendMessage('user', msg);
+      input.value = '';
+      input.disabled = true;
+      
+      const loadingId = appendMessage('ai', '<i class="ti ti-loader-2"></i> Pensando...');
+
+      try {
+        const res = await fetch('/.netlify/functions/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${Auth.getToken()}` },
+          body: JSON.stringify({ message: msg, history: chatHistory })
+        });
+        
+        if (!res.ok) throw new Error('Falha no servidor da IA');
+        const data = await res.json();
+        
+        // Atualiza o histórico para o Gemini ter contexto se você responder "sim"
+        chatHistory.push({ role: 'user', parts: [{ text: msg }] });
+        chatHistory.push({ role: 'model', parts: [{ text: data.text }] });
+
+        updateMessage(loadingId, data.text);
+
+        // Se a IA disparou uma ação que alterou os dados, o frontend recarrega sozinho
+        if (data.uiAction === 'RELOAD_DATA') {
+          await loadData();
+          renderView(true);
+        }
+
+      } catch (err) {
+        updateMessage(loadingId, 'Houve um erro de conexão com a IA.');
+      } finally {
+        input.disabled = false;
+        input.focus();
+      }
+    });
+  }
+
+  function appendMessage(role, text) {
+    const container = el('#chat-messages');
+    const div = document.createElement('div');
+    const id = 'msg_' + Date.now();
+    div.id = id;
+    div.className = `chat-bubble ${role}`;
+    div.innerHTML = text;
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+    return id;
+  }
+
+  function updateMessage(id, text) {
+    const div = el(`#${id}`);
+    if (div) {
+      // Converte quebras de linha em <br> para manter a formatação do Gemini
+      div.innerHTML = text.replace(/\n/g, '<br>');
+      const container = el('#chat-messages');
+      container.scrollTop = container.scrollHeight;
+    }
   }
 
   return { 
