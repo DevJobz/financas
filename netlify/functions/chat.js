@@ -27,12 +27,15 @@ exports.handler = async (event) => {
     const { message, history } = JSON.parse(event.body);
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     
-    // Instruções rigorosas de comportamento e segurança
-    const systemInstruction = `Você é o assistente financeiro integrado do casal Lucas e Emily. 
+    // Instruções rigorosas de comportamento e segurança usando variáveis de ambiente
+    const u1 = process.env.USER1_NAME || 'Pessoa 1';
+    const u2 = process.env.USER2_NAME || 'Pessoa 2';
+
+    const systemInstruction = `Você é o assistente financeiro integrado do casal ${u1} e ${u2}. 
     Seu papel é analisar dados, responder dúvidas e automatizar lançamentos de forma amigável.
     REGRA DE OURO 1: Você NUNCA deve executar a função de excluir sem antes perguntar explicitamente ao usuário e receber um "sim" de confirmação.
     REGRA DE OURO 2: Se o usuário pedir um resumo ou perguntar sobre gastos, sempre chame a função consultarDados para ler a base de dados atualizada antes de responder.
-    REGRA DE OURO 3: Seja direto e amigável. Formate valores monetários sempre em R$.`;
+    REGRA DE OURO 3: Seja claro, verdadeiro e amigável. Formate valores monetários sempre em R$.`;
 
     const tools = [{
       functionDeclarations: [
