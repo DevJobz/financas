@@ -342,7 +342,7 @@ details[open] summary i { transform: rotate(180deg); transition: 0.2s; }
 
 /* ---------- AI CHAT ---------- */
 .chat-fab {
-  position: fixed; bottom: 100px; right: 24px; z-index: 40;
+  position: fixed; bottom: 24px; right: 24px; z-index: 40;
   width: 56px; height: 56px; border-radius: 50%;
   background: linear-gradient(135deg, var(--teal-700), var(--teal-500));
   color: #fff; box-shadow: var(--shadow-float); border: none;
@@ -352,13 +352,13 @@ details[open] summary i { transform: rotate(180deg); transition: 0.2s; }
 .chat-fab:active { transform: scale(0.9); }
 
 .chat-modal {
-  position: fixed; bottom: 170px; right: 24px; z-index: 40;
-  width: calc(100% - 48px); max-width: 380px; height: 500px;
+  position: fixed; bottom: 90px; right: 24px; z-index: 40;
+  width: 380px; height: 520px; max-height: calc(100vh - 120px);
   background: var(--surface); border-radius: var(--radius-md);
   box-shadow: var(--shadow-float); border: 1px solid var(--line);
   display: flex; flex-direction: column; overflow: hidden;
-  opacity: 0; pointer-events: none; transform: translateY(20px);
-  transition: all 0.3s ease;
+  opacity: 0; pointer-events: none; transform: translateY(15px);
+  transition: all 0.25s ease;
 }
 .chat-modal.open { opacity: 1; pointer-events: auto; transform: translateY(0); }
 
@@ -382,6 +382,6 @@ details[open] summary i { transform: rotate(180deg); transition: 0.2s; }
 }
 
 @media (max-width: 720px) {
-  .chat-modal { bottom: 100px; right: 14px; width: calc(100% - 28px); }
-  .chat-fab { bottom: 100px; right: 14px; }
+  .chat-modal { bottom: 90px; right: 14px; width: calc(100% - 28px); height: 480px; }
+  .chat-fab { bottom: 24px; right: 14px; }
 }
