@@ -13,6 +13,7 @@ const App = (() => {
         filterStatus: 'todos', // NOVO: Filtro de OK/Aberto
     filterSort: 'date_desc', // NOVO: Ordenação da lista de lançamentos
     selectedTxs: [],       // NOVO: Guarda os lançamentos selecionados em massa
+    records: [],
     editingId: null,
   };
 
@@ -55,9 +56,10 @@ const App = (() => {
   }
 
   async function loadData() {
-    const [transactions, settings] = await Promise.all([Api.getTransactions(), Api.getSettings()]);
+    const [transactions, settings, records] = await Promise.all([Api.getTransactions(), Api.getSettings(), Api.getRecords()]);
     state.transactions = transactions.sort((a, b) => a.date.localeCompare(b.date));
     state.settings = settings;
+    state.records = records || []; // Carrega o novo banco
     state.months = Utils.buildMonthlySummary(state.transactions, state.settings);
   }
 
@@ -144,6 +146,7 @@ const App = (() => {
           <button class="nav-item" data-view="lancamentos"><i class="ti ti-list-details"></i><span>Lançamentos</span></button>
           <button class="nav-item nav-fab" id="btn-add-fab"><i class="ti ti-plus"></i></button>
           <button class="nav-item" data-view="historico"><i class="ti ti-chart-line"></i><span>Histórico</span></button>
+          <button class="nav-item" data-view="registros"><i class="ti ti-notebook"></i><span>Diário</span></button>
           <button class="nav-item" data-view="config"><i class="ti ti-settings"></i><span>Ajustes</span></button>
         </nav>
       </div>
@@ -325,12 +328,328 @@ const App = (() => {
     else if (state.view === 'historico') container.innerHTML = viewHistorico();
     else if (state.view === 'config') container.innerHTML = viewConfig();
     else if (state.view === 'auditoria') container.innerHTML = viewAuditoria();
+    else if (state.view === 'registros') container.innerHTML = viewRegistros();
 
     if (state.view === 'config') attachConfigHandlers();
     if (state.view === 'dashboard') drawDashboardCharts();
     if (state.view === 'historico') drawHistoricoChart();
     
     if (silent) window.scrollTo(0, scrollY);
+  }
+
+  // ---------- DIÁRIO E LISTAS (LIFE HUB) ----------
+  function viewRegistros() {
+    const records = state.records || [];
+    const listas = records.filter(r => r.type === 'shopping').sort((a, b) => b.date.localeCompare(a.date));
+    const manuts = records.filter(r => r.type === 'maintenance').sort((a, b) => b.km - a.km);
+    const trips = records.filter(r => r.type === 'trip').sort((a, b) => b.date.localeCompare(a.date));
+    const goals = records.filter(r => r.type === 'goal');
+    const subs = records.filter(r => r.type === 'subscription');
+
+    return `
+      <section class="view-header">
+        <h1>Life Hub</h1>
+        <p class="subtitle">Planejamento de viagens, mercado, manutenções e metas do casal.</p>
+      </section>
+
+      <!-- SEÇÃO 1: ROTEIROS DE VIAGEM -->
+      <section class="card">
+        <div class="card-header" style="justify-content: space-between;">
+          <h2><i class="ti ti-plane-departure"></i> Roteiros e Viagens</h2>
+          <button class="btn btn-primary" style="padding: 4px 10px; font-size: 12px;" onclick="App.newTrip()"><i class="ti ti-plus"></i> Nova Viagem</button>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:12px;">
+          ${trips.length === 0 ? '<p class="muted-small">Nenhuma viagem planejada no momento.</p>' : ''}
+          ${trips.map(trip => {
+            const places = trip.places || [];
+            const estTotal = places.reduce((acc, p) => acc + (parseFloat(p.estCost) || 0), 0);
+            return `
+            <div style="border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 14px;">
+              <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
+                <div>
+                  <strong style="font-size: 16px; color: var(--teal-900);">${trip.title}</strong>
+                  <span class="muted-small" style="display:block; font-size: 11px;">Mês previsto: ${Utils.monthLabel(trip.date.slice(0,7))}</span>
+                </div>
+                <div style="display:flex; gap: 4px;">
+                  <button class="icon-btn" onclick="App.addTripPlace('${trip.id}')" title="Adicionar Passeio/Local"><i class="ti ti-map-pin-plus"></i></button>
+                  <button class="icon-btn" onclick="App.deleteRecordEntry('${trip.id}')" title="Excluir Viagem"><i class="ti ti-trash"></i></button>
+                </div>
+              </div>
+              
+              ${places.length > 0 ? `
+              <ul style="list-style:none; padding:0; margin:0 0 12px 0; font-size:13px; display:flex; flex-direction:column; gap:8px;">
+                ${places.map(p => `
+                  <li style="display:flex; justify-content:space-between; align-items:center; background:var(--surface-sunken); padding:8px; border-radius:4px;">
+                    <div>
+                      <strong>${p.name}</strong>
+                      ${p.link ? `<a href="${p.link}" target="_blank" style="color:var(--teal-500); margin-left:6px;" title="Ver local"><i class="ti ti-external-link"></i></a>` : ''}
+                    </div>
+                    <span class="muted-small">Previsto: ${Utils.fmtBRL(p.estCost)}</span>
+                  </li>
+                `).join('')}
+              </ul>
+              ` : '<p class="muted-small" style="font-size:12px; margin-bottom:12px;">Adicione locais e passeios a este roteiro.</p>'}
+              
+              <div style="display: flex; justify-content: space-between; background: var(--teal-100); padding: 10px; border-radius: var(--radius-sm); align-items: center;">
+                <span style="color: var(--teal-900); font-size: 13px;">Orçamento Total Previsto:</span>
+                <strong style="color: var(--teal-700); font-size: 15px;">${Utils.fmtBRL(estTotal)}</strong>
+              </div>
+            </div>`;
+          }).join('')}
+        </div>
+      </section>
+
+      <!-- SEÇÃO 2: METAS EM CONJUNTO -->
+      <section class="card">
+        <div class="card-header" style="justify-content: space-between;">
+          <h2><i class="ti ti-target"></i> Metas do Casal</h2>
+          <button class="btn btn-primary" style="padding: 4px 10px; font-size: 12px;" onclick="App.newGoal()"><i class="ti ti-plus"></i> Nova Meta</button>
+        </div>
+        <div class="grid-2">
+          ${goals.length === 0 ? '<p class="muted-small" style="grid-column:1/-1;">Nenhuma meta definida.</p>' : ''}
+          ${goals.map(g => {
+            const pct = Math.min(100, ((g.saved / g.target) * 100)).toFixed(1);
+            return `
+            <div style="border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 14px;">
+              <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+                <strong style="font-size: 14px; color: var(--ink);">${g.title}</strong>
+                <button class="icon-btn" onclick="App.deleteRecordEntry('${g.id}')"><i class="ti ti-trash"></i></button>
+              </div>
+              <div class="progress-bar" style="margin-bottom: 6px;">
+                <div class="progress-fill" style="width: ${pct}%; background: var(--teal-500);"></div>
+              </div>
+              <div style="display:flex; justify-content:space-between; font-size: 12px;">
+                <span style="color:var(--teal-700); font-weight:bold;">${Utils.fmtBRL(g.saved)}</span>
+                <span class="muted-small">Alvo: ${Utils.fmtBRL(g.target)}</span>
+              </div>
+              <button class="btn btn-ghost" style="width:100%; margin-top:10px; height:28px; font-size:11px;" onclick="App.updateGoal('${g.id}', ${g.saved})">Atualizar Valor Guardado</button>
+            </div>`;
+          }).join('')}
+        </div>
+      </section>
+
+      <!-- SEÇÃO EXTRA: ASSINATURAS E SERVIÇOS RECORRENTES -->
+      <section class="card">
+        <div class="card-header" style="justify-content: space-between;">
+          <h2><i class="ti ti-repeat"></i> Gestão de Assinaturas</h2>
+          <button class="btn btn-primary" style="padding: 4px 10px; font-size: 12px;" onclick="App.newSubscription()"><i class="ti ti-plus"></i> Nova Assinatura</button>
+        </div>
+        
+        ${subs.length > 0 ? `
+        <div style="background: var(--surface-sunken); padding: 10px 14px; border-radius: var(--radius-sm); margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center;">
+          <span class="muted-small">Total gasto por mês (estimativa):</span>
+          <strong style="color: var(--coral-700); font-size: 16px;">
+            ${Utils.fmtBRL(subs.reduce((acc, s) => acc + (s.cycle.toLowerCase() === 'anual' ? (parseFloat(s.cost)/12) : parseFloat(s.cost)), 0))}
+          </strong>
+        </div>
+        ` : ''}
+
+        <div class="grid-2">
+          ${subs.length === 0 ? '<p class="muted-small" style="grid-column:1/-1;">Nenhuma assinatura registrada. Que ótimo!</p>' : ''}
+          ${subs.map(s => `
+            <div style="border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 14px; display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <strong style="font-size: 15px; color: var(--ink);">${s.title}</strong>
+                <div class="muted-small" style="font-size: 12px; margin-top: 4px;">Ciclo: ${s.cycle}</div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <strong style="color: var(--coral-700); font-size: 15px;">${Utils.fmtBRL(s.cost)}</strong>
+                <button class="icon-btn" onclick="App.deleteRecordEntry('${s.id}')"><i class="ti ti-trash"></i></button>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </section>
+
+      <!-- SEÇÃO 3: MERCADO E MANUTENÇÕES (Lado a lado em telas grandes) -->
+      <div class="grid-2">
+        <section class="card">
+          <div class="card-header" style="justify-content: space-between;">
+            <h2><i class="ti ti-shopping-cart"></i> Mercado</h2>
+            <button class="icon-btn" onclick="App.newList()"><i class="ti ti-plus"></i></button>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:12px;">
+            ${listas.map(lista => {
+              const checkedItems = (lista.items || []).filter(i => i.checked);
+              const totalReal = checkedItems.reduce((acc, i) => acc + ((parseFloat(i.price) || 0) * (parseInt(i.qty) || 1)), 0);
+              return `
+              <div style="border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px;">
+                <div style="display: flex; justify-content: space-between;">
+                  <strong>${lista.title}</strong>
+                  <div style="display:flex; gap:4px;">
+                    ${!lista.linkedTxId ? `<button class="icon-btn" onclick="App.convertListToTx('${lista.id}', ${totalReal}, '${lista.title}')"><i class="ti ti-wallet"></i></button>` : ''}
+                    <button class="icon-btn" onclick="App.deleteRecordEntry('${lista.id}')"><i class="ti ti-trash"></i></button>
+                  </div>
+                </div>
+                <div style="font-size:12px; margin-top:4px;">No carrinho: <strong>${Utils.fmtBRL(totalReal)}</strong></div>
+              </div>`;
+            }).join('')}
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-header" style="justify-content: space-between;">
+            <h2><i class="ti ti-tool"></i> Veículos / Casa</h2>
+            <button class="icon-btn" onclick="App.newMaintenance()"><i class="ti ti-plus"></i></button>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:12px;">
+            ${manuts.map(m => `
+              <div style="border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px; border-left: 4px solid var(--teal-500);">
+                <div style="display: flex; justify-content: space-between;">
+                  <strong>${m.vehicle}</strong>
+                  <button class="icon-btn" onclick="App.deleteRecordEntry('${m.id}')"><i class="ti ti-trash"></i></button>
+                </div>
+                <div class="muted-small" style="font-size:12px;">${m.service} • ${m.km.toLocaleString('pt-BR')} KM</div>
+              </div>
+            `).join('')}
+          </div>
+        </section>
+      </div>
+    `;
+  }
+
+  // --- VIAGENS ---
+  async function newTrip() {
+    const title = prompt("Nome da viagem/roteiro (ex: Férias Nordeste, Final de Semana SP):");
+    if (!title) return;
+    const dataMes = prompt("Qual o mês previsto? (Formato AAAA-MM, ex: 2026-11)");
+    await saveRecord({ type: 'trip', title, date: dataMes || new Date().toISOString().slice(0, 10), places: [] });
+  }
+
+  async function addTripPlace(tripId) {
+    const trip = state.records.find(r => r.id === tripId);
+    if (!trip) return;
+
+    const name = prompt("Nome do local ou passeio (ex: Passeio de Buggy, Restaurante X):");
+    if (!name) return;
+    const link = prompt("Link de referência (Google Maps, Instagram, TripAdvisor) - Opcional:");
+    const estCost = prompt("Estimativa de custo nesse local? (Apenas números, use ponto para centavos):");
+
+    const newPlaces = [...(trip.places || []), { id: crypto.randomUUID(), name, link, estCost: parseFloat(estCost) || 0 }];
+    await saveRecord({ ...trip, places: newPlaces });
+  }
+
+  // --- ASSINATURAS ---
+  async function newSubscription() {
+    const title = prompt("Qual o nome do serviço? (ex: Netflix, Spotify, Academia, iCloud)");
+    if (!title) return;
+    const cost = prompt("Qual o valor pago? (Apenas números, use ponto para centavos)");
+    if (!cost) return;
+    const cycle = prompt("Qual o ciclo de cobrança? (Digite 'Mensal' ou 'Anual')") || 'Mensal';
+    
+    await saveRecord({ 
+      type: 'subscription', 
+      title, 
+      cost: parseFloat(cost) || 0, 
+      cycle 
+    });
+  }
+
+  // --- METAS ---
+  async function newGoal() {
+    const title = prompt("O que vocês querem alcançar juntos? (ex: Trocar TV, Reserva Emergência)");
+    if (!title) return;
+    const target = prompt("Qual é o valor alvo? (R$)");
+    if (!target) return;
+    await saveRecord({ type: 'goal', title, target: parseFloat(target) || 0, saved: 0 });
+  }
+
+  async function updateGoal(goalId, currentSaved) {
+    const goal = state.records.find(r => r.id === goalId);
+    if (!goal) return;
+    const newSaved = prompt(`Quanto vocês já têm guardado para "${goal.title}"?`, currentSaved);
+    if (newSaved === null) return; // Cancelou
+    await saveRecord({ ...goal, saved: parseFloat(newSaved) || 0 });
+  }
+
+  // --- LÓGICA DE INTERAÇÃO DOS REGISTROS ---
+  
+  async function newList() {
+    const title = prompt("Qual o nome desta lista? (ex: Mercado de Setembro, Assaí)");
+    if (!title) return;
+    await saveRecord({ type: 'shopping', title, date: new Date().toISOString().slice(0, 10), items: [] });
+  }
+
+  async function editList(listId) {
+    const lista = state.records.find(r => r.id === listId);
+    if (!lista) return;
+
+    const action = prompt(`Lista: ${lista.title}\n\nO que deseja fazer?\n1 - Adicionar item à lista\n2 - Marcar item que coloquei no carrinho (Dar baixa)\n\nDigite 1 ou 2:`);
+    
+    if (action === '1') {
+      const itemName = prompt("O que você precisa comprar?");
+      if (!itemName) return;
+      const qty = prompt("Quantidade:", "1");
+      
+      const newItem = {
+        id: crypto.randomUUID(),
+        name: itemName,
+        price: 0,
+        qty: parseInt(qty) || 1,
+        checked: false
+      };
+      
+      lista.items = [...(lista.items || []), newItem];
+      await saveRecord(lista);
+    } 
+    else if (action === '2') {
+      const pendentes = (lista.items || []).filter(i => !i.checked);
+      if (pendentes.length === 0) {
+        alert("Todos os itens já estão no carrinho!");
+        return;
+      }
+      
+      // Cria uma lista numerada para o usuário escolher
+      const msg = pendentes.map((item, index) => `${index} - ${item.name} (${item.qty}x)`).join('\n');
+      const idx = prompt(`Qual item você acabou de pegar?\nDigite o NÚMERO correspondente:\n\n${msg}`);
+      
+      if (idx !== null && pendentes[idx]) {
+        const realPrice = prompt(`Qual foi o preço unitário de '${pendentes[idx].name}'?`, "0.00");
+        pendentes[idx].price = parseFloat(realPrice) || 0;
+        pendentes[idx].checked = true;
+        await saveRecord(lista);
+      }
+    }
+  }
+
+  async function newMaintenance() {
+    const vehicle = prompt("Qual o veículo/ativo? (ex: Moto, Carro, Casa)");
+    if (!vehicle) return;
+    const service = prompt("O que foi feito? (ex: Troca de Óleo, Pneu)");
+    const km = prompt("Qual a quilometragem atual? (Apenas números)");
+    const cost = prompt("Qual foi o custo total? (Apenas números, use ponto para centavos)");
+    
+    await saveRecord({
+      type: 'maintenance', vehicle, service, 
+      km: parseInt(km) || 0, cost: parseFloat(cost) || 0, 
+      date: new Date().toISOString().slice(0, 10)
+    });
+  }
+
+  async function deleteRecordEntry(id) {
+    if (!confirm('Deseja excluir este registro do diário?')) return;
+    await Api.deleteRecord(id);
+    await loadData(); renderView();
+  }
+
+  function convertListToTx(recordId, totalAmount, title) {
+    if (totalAmount <= 0) {
+      showToast('O valor total está zerado. Adicione preços aos itens.', 'danger');
+      return;
+    }
+    // Abre o modal financeiro nativo do app, preenchendo os dados automaticamente!
+    openTransactionModal(null, { amount: totalAmount, description: title, category: 'Alimentação' });
+    
+    // Opcional: Atualizar o record no banco marcando linkedTxId após salvar o modal.
+    // Para simplificar a UX agora, o usuário salva no modal e nós marcamos como lançado depois visualmente.
+  }
+
+  async function saveRecord(payload) {
+    try {
+      await Api.saveRecord(payload);
+      await loadData();
+      renderView();
+    } catch(e) { showToast(e.message, 'danger'); }
   }
 
   function getPeople() {
@@ -744,7 +1063,7 @@ const App = (() => {
 
   // ---------- TRANSACTION MODAL ----------
 
-  function openTransactionModal(editId) {
+  function openTransactionModal(editId, prefill = null) {
     const existing = editId ? state.transactions.find((t) => t.id === editId) : null;
     const type = existing ? existing.type : 'gasto';
     const categories = (state.settings && state.settings.categories && state.settings.categories[type]) || [];
@@ -757,6 +1076,11 @@ const App = (() => {
         defaultDate = `${state.filterMonth}-01`;
       }
     }
+
+    // AQUI: Preparamos as variáveis para puxar do prefill caso seja um lançamento vindo da lista
+    let defaultAmount = existing ? existing.amount : (prefill ? prefill.amount : '');
+    let defaultDesc = existing ? existing.description : (prefill ? prefill.description : '');
+    let defaultCat = existing ? existing.category : (prefill ? prefill.category : categories[0]);
 
     el('#modal-root').innerHTML = `
       <div class="modal-overlay" id="modal-overlay">
@@ -789,14 +1113,14 @@ const App = (() => {
             </label>
             <label>Categoria
               <select id="tx-category">
-                ${categories.map((c) => `<option value="${c}" ${existing && existing.category === c ? 'selected' : ''}>${c}</option>`).join('')}
+                ${categories.map((c) => `<option value="${c}" ${defaultCat === c ? 'selected' : ''}>${c}</option>`).join('')}
               </select>
             </label>
             <label>Descrição
-              <input type="text" id="tx-desc" value="${existing ? existing.description || '' : ''}" />
+              <input type="text" id="tx-desc" value="${defaultDesc}" />
             </label>
             <label>Valor (R$)
-              <input type="number" step="0.01" min="0" id="tx-amount" value="${existing ? existing.amount : ''}" required />
+              <input type="number" step="0.01" min="0" id="tx-amount" value="${defaultAmount}" required />
             </label>
             <label>Responsável
               <select id="tx-paidby">
@@ -1825,7 +2149,17 @@ const App = (() => {
     openCardModal, 
     openFixedModal,
     openConfirmFixedModal,
-    skipFixedMonth
+    skipFixedMonth,
+    newList,
+    editList,           // <-- Aqui está a função nova que faltava
+    newMaintenance,
+    deleteRecordEntry,
+    convertListToTx,
+    newTrip,
+    addTripPlace,
+    newGoal,
+    updateGoal,
+    newSubscription
   };
 })();
 

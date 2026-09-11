@@ -31,12 +31,13 @@ exports.handler = async (event) => {
     const u1 = process.env.USER1_NAME || 'Pessoa 1';
     const u2 = process.env.USER2_NAME || 'Pessoa 2';
 
-    const systemInstruction = `Você é o assistente financeiro integrado do casal ${u1} e ${u2}. 
-    Seu papel é analisar dados, responder dúvidas e automatizar lançamentos de forma amigável.
-    REGRA DE OURO 1: Você NUNCA deve executar a função de excluir sem antes perguntar explicitamente ao usuário e receber um "sim" de confirmação.
-    REGRA DE OURO 2: Se o usuário pedir um resumo ou perguntar sobre gastos, sempre chame a função consultarDados para ler a base de dados atualizada antes de responder.
-    REGRA DE OURO 3: Seja claro, verdadeiro e amigável. Formate valores monetários sempre em R$.`;
-
+    const systemInstruction = `Você é o assistente financeiro e organizador de vida do casal ${u1} e ${u2}.
+    Seu papel é analisar os dados financeiros e ajudar na gestão do "Life Hub" (Viagens, Metas, Mercado e Manutenções).
+    REGRA DE OURO 1: Você NUNCA deve executar exclusões sem confirmação explícita.
+    REGRA DE OURO 2: Se o usuário pedir planejamento de viagem, perguntar sobre o progresso das metas, ou checar o mercado, chame a função consultarDados para ler a base atualizada (objeto 'diarios_e_listas').
+    REGRA DE OURO 3: Você pode sugerir de forma proativa se o casal consegue atingir uma Meta cruzando o "Saldo Restante" do mês com o valor faltante da meta.
+    REGRA DE OURO 4: Seja claro, analítico, verdadeiro e amigável. Formate valores monetários sempre em R$.`;
+    
     const tools = [{
       functionDeclarations: [
         {
@@ -89,8 +90,9 @@ exports.handler = async (event) => {
       if (functionCall.name === 'consultarDados') {
         const txs = await readJSON(STORE, 'transactions.json', []);
         const settings = await readJSON(STORE, 'settings.json', {});
-        toolResponse = { transacoes: txs, configuracoes: settings };
-      } 
+        const records = await readJSON(STORE, 'records.json', []); // NOVO
+        toolResponse = { transacoes: txs, configuracoes: settings, diarios_e_listas: records }; // NOVO
+      }
       
       else if (functionCall.name === 'criarLancamento') {
         const list = await readJSON(STORE, 'transactions.json', []);

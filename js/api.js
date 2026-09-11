@@ -1,5 +1,4 @@
 const Api = (() => {
-  // Mantemos a chamada direta às funções serverless para máxima compatibilidade
   const BASE = '/.netlify/functions';
 
   function getToken() {
@@ -19,7 +18,7 @@ const Api = (() => {
 
     const res = await fetch(`${BASE}${path}`, { ...options, headers });
 
-    // RESTAURADO: Se o token expirar (401), desloga o usuário na hora
+    // Se o token expirar (401), desloga o usuário na hora
     if (res.status === 401) {
       if (typeof Auth !== 'undefined' && Auth.logout) {
         Auth.logout();
@@ -40,30 +39,24 @@ const Api = (() => {
     return data;
   }
 
+  // TUDO QUE É EXPORTADO VAI AQUI DENTRO DO RETURN
   return {
-    login: (username, password) =>
-      request('/auth', {
-        method: 'POST',
-        body: JSON.stringify({ username, password }),
-      }),
+    login: (username, password) => request('/auth', { method: 'POST', body: JSON.stringify({ username, password }) }),
 
+    // Lançamentos Financeiros
     getTransactions: () => request('/transactions'),
-    
-    createTransaction: (payload) =>
-      request('/transactions', { method: 'POST', body: JSON.stringify(payload) }),
-    
-    updateTransaction: (payload) =>
-      request('/transactions', { method: 'PUT', body: JSON.stringify(payload) }),
-    
-    // ADICIONADO: Suporte a exclusão individual ou em cascata (todo o grupo)
-    deleteTransaction: (id, deleteGroup = false) =>
-      request(`/transactions?id=${encodeURIComponent(id)}&deleteGroup=${deleteGroup}`, { method: 'DELETE' }),
+    createTransaction: (payload) => request('/transactions', { method: 'POST', body: JSON.stringify(payload) }),
+    updateTransaction: (payload) => request('/transactions', { method: 'PUT', body: JSON.stringify(payload) }),
+    deleteTransaction: (id, deleteGroup = false) => request(`/transactions?id=${encodeURIComponent(id)}&deleteGroup=${deleteGroup}`, { method: 'DELETE' }),
 
+    // Configurações e Auditoria
     getSettings: () => request('/settings'),
-    
-    updateSettings: (payload) =>
-      request('/settings', { method: 'PUT', body: JSON.stringify(payload) }),
-
+    updateSettings: (payload) => request('/settings', { method: 'PUT', body: JSON.stringify(payload) }),
     getAudit: () => request('/audit'),
+
+    // --- MÓDULO DE REGISTROS, LISTAS E LIFE HUB ---
+    getRecords: () => request('/records'),
+    saveRecord: (payload) => request('/records', { method: 'POST', body: JSON.stringify(payload) }),
+    deleteRecord: (id) => request(`/records?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
   };
 })();
