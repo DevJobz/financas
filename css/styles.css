@@ -382,6 +382,15 @@ details[open] summary i { transform: rotate(180deg); transition: 0.2s; }
 }
 
 @media (max-width: 720px) {
-  .chat-modal { bottom: 90px; right: 14px; width: calc(100% - 28px); height: 480px; }
-  .chat-fab { bottom: 24px; right: 14px; }
+  .chat-fab {
+    bottom: 90px !important; /* Eleva o botão da IA para cima da barra de navegação */
+    right: 16px !important;
+    z-index: 999;
+  }
+  
+  .chat-modal {
+    bottom: 150px !important; /* Levanta o modal aberto para que a barra continue visível e funcional */
+    right: 16px !important;
+    width: calc(100% - 32px) !important;
+  }
 }

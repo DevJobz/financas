@@ -1,4 +1,4 @@
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { GoogleGenAI } = require('@google/genai');
 const crypto = require('crypto');
 const { readJSON, writeJSON } = require('./_shared/blobStore');
 const { verifyToken, cors } = require('./_shared/authMiddleware');
@@ -20,14 +20,14 @@ exports.handler = async (event) => {
 
   const user = verifyToken(event);
   if (!user) return { statusCode: 401, headers, body: JSON.stringify({ error: 'Não autenticado' }) };
-
   if (event.httpMethod !== 'POST') return { statusCode: 405, headers, body: JSON.stringify({ error: 'Método não permitido' }) };
 
   try {
     const { message, history } = JSON.parse(event.body);
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     
-    // Instruções rigorosas de comportamento e segurança usando variáveis de ambiente
+    // NOVO: Instanciação do SDK atualizado
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    
     const u1 = process.env.USER1_NAME || 'Pessoa 1';
     const u2 = process.env.USER2_NAME || 'Pessoa 2';
 
@@ -75,14 +75,21 @@ exports.handler = async (event) => {
       ]
     }];
 
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash", systemInstruction, tools });
-    const chat = model.startChat({ history: history || [] });
+    // NOVO: Estrutura do chat via ai.chats.create
+    const chat = ai.chats.create({
+      model: "gemini-2.5-flash",
+      config: {
+        systemInstruction: systemInstruction,
+        tools: tools
+      },
+      history: history || [] 
+    });
     
-    let result = await chat.sendMessage(message);
-    let functionCall = result.response.functionCalls && result.response.functionCalls()[0];
-    let uiAction = null; // Para avisar o frontend para recarregar a tela
+    let result = await chat.sendMessage({ message });
+    // NOVO: functionCalls agora é uma propriedade direta, não uma função invocável
+    let functionCall = result.functionCalls && result.functionCalls[0];
+    let uiAction = null;
 
-    // Se o Gemini decidir que precisa de uma ferramenta, nós executamos aqui
     if (functionCall) {
       const args = functionCall.args;
       let toolResponse = {};
@@ -90,8 +97,8 @@ exports.handler = async (event) => {
       if (functionCall.name === 'consultarDados') {
         const txs = await readJSON(STORE, 'transactions.json', []);
         const settings = await readJSON(STORE, 'settings.json', {});
-        const records = await readJSON(STORE, 'records.json', []); // NOVO
-        toolResponse = { transacoes: txs, configuracoes: settings, diarios_e_listas: records }; // NOVO
+        const records = await readJSON(STORE, 'records.json', []);
+        toolResponse = { transacoes: txs, configuracoes: settings, diarios_e_listas: records };
       }
       
       else if (functionCall.name === 'criarLancamento') {
@@ -122,17 +129,19 @@ exports.handler = async (event) => {
         }
       }
 
-      // Devolvemos o resultado para o Gemini gerar a resposta final em português
-      result = await chat.sendMessage([{
-        functionResponse: { name: functionCall.name, response: toolResponse }
-      }]);
+      // NOVO: Envio da resposta da ferramenta no novo formato
+      result = await chat.sendMessage({
+        message: [{
+          functionResponse: { name: functionCall.name, response: toolResponse }
+        }]
+      });
     }
 
     return { 
       statusCode: 200, 
       headers, 
       body: JSON.stringify({ 
-        text: result.response.text(), 
+        text: result.text, // NOVO: 'text' é uma propriedade e não mais .text()
         uiAction 
       }) 
     };
