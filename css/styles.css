@@ -381,6 +381,36 @@ details[open] summary i { transform: rotate(180deg); transition: 0.2s; }
   color: #fff; border: none; display: flex; align-items: center; justify-content: center; cursor: pointer;
 }
 
+.typing-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 2px;
+}
+.typing-indicator span {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--teal-700);
+  opacity: 0.4;
+  animation: typing-bounce 1.2s infinite ease-in-out;
+}
+.typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+.typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes typing-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30% { transform: translateY(-5px); opacity: 1; }
+}
+
+.chat-bubble.ai h1, .chat-bubble.ai h2, .chat-bubble.ai h3 {
+  font-size: 14px; margin: 8px 0 4px; color: var(--teal-900);
+}
+.chat-bubble.ai p { margin: 0 0 8px; }
+.chat-bubble.ai p:last-child { margin-bottom: 0; }
+.chat-bubble.ai ul, .chat-bubble.ai ol { margin: 4px 0 8px; padding-left: 18px; }
+.chat-bubble.ai li { margin-bottom: 2px; }
+.chat-bubble.ai strong { color: var(--teal-900); }
+.chat-bubble.ai hr { border: none; border-top: 1px solid var(--line); margin: 10px 0; }
+
 @media (max-width: 720px) {
   .chat-fab {
     bottom: 90px !important; /* Eleva o botão da IA para cima da barra de navegação */

@@ -2,6 +2,7 @@ import { GoogleGenAI } from '@google/genai';
 import crypto from 'crypto';
 import { readJSON, writeJSON } from './_shared/blobStore.js';
 import { verifyToken, cors } from './_shared/authMiddleware.js';
+import { buildMonthlySummary } from './_shared/financeEngine.js';
 
 const STORE = 'financas';
 
@@ -32,13 +33,14 @@ export default async (req) => {
     const u2 = process.env.USER2_NAME || 'Pessoa 2';
 
     const systemInstruction = `Você é o assistente financeiro e organizador de vida do casal ${u1} e ${u2}.
-    Seu papel é analisar os dados financeiros e ajudar na gestão do "Life Hub" (Viagens, Metas, Mercado e Manutenções).
-    REGRA DE OURO 1: Você NUNCA deve executar exclusões sem confirmação explícita.
-    REGRA DE OURO 2: Se o usuário pedir planejamento de viagem, perguntar sobre o progresso das metas, ou checar o mercado, chame a função consultarDados para ler a base atualizada (objeto 'diarios_e_listas').
-    REGRA DE OURO 3: Você pode sugerir de forma proativa se o casal consegue atingir uma Meta cruzando o "Saldo Restante" do mês com o valor faltante da meta.
-    REGRA DE OURO 4: Seja claro, analítico, verdadeiro e amigável. Formate valores monetários sempre em R$.`;
-
-    const tools = [{
+Seu papel é analisar os dados financeiros e ajudar na gestão do "Life Hub" (Viagens, Metas, Mercado e Manutenções).
+REGRA DE OURO 1: Você NUNCA deve executar exclusões sem confirmação explícita.
+REGRA DE OURO 2: Se o usuário pedir planejamento de viagem, perguntar sobre o progresso das metas, ou checar o mercado, chame a função consultarDados para ler a base atualizada (objeto 'diarios_e_listas').
+REGRA DE OURO 3: Você pode sugerir de forma proativa se o casal consegue atingir uma Meta cruzando o "Saldo Restante" do mês com o valor faltante da meta.
+REGRA DE OURO 4: Seja claro, analítico, verdadeiro e amigável. Formate valores monetários sempre em R$.
+REGRA DE OURO 5: O campo 'resumoMensal' já vem com saldo, receitas e despesas calculados corretamente por mês (chave AAAA-MM), incluindo saldo acumulado de meses anteriores e lançamentos fixos recorrentes. Para responder sobre saldo, receitas ou despesas de qualquer mês, use SEMPRE os valores prontos em 'resumoMensal[chave].saldoRestante' etc. NUNCA some 'transacoes' brutas por conta própria para calcular saldo — use 'transacoes' apenas para localizar o 'id' de um lançamento específico (ex: para excluir).`;
+    
+const tools = [{
       functionDeclarations: [
         {
           name: "consultarDados",
@@ -95,11 +97,12 @@ export default async (req) => {
       let toolResponse = {};
 
       if (functionCall.name === 'consultarDados') {
-        const txs = await readJSON(STORE, 'transactions.json', []);
-        const settings = await readJSON(STORE, 'settings.json', {});
-        const records = await readJSON(STORE, 'records.json', []);
-        toolResponse = { transacoes: txs, configuracoes: settings, diarios_e_listas: records };
-      }
+  const txs = await readJSON(STORE, 'transactions.json', []);
+  const settings = await readJSON(STORE, 'settings.json', {});
+  const records = await readJSON(STORE, 'records.json', []);
+  const resumoMensal = buildMonthlySummary(txs, settings); // já vem com saldo acumulado e fixos incluídos
+  toolResponse = { resumoMensal, transacoes: txs, configuracoes: settings, diarios_e_listas: records };
+}
 
       else if (functionCall.name === 'criarLancamento') {
         const list = await readJSON(STORE, 'transactions.json', []);

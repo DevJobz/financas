@@ -2084,7 +2084,7 @@ const App = (() => {
       input.value = '';
       input.disabled = true;
       
-      const loadingId = appendMessage('ai', '<i class="ti ti-loader-2"></i> Pensando...');
+const loadingId = appendMessage('ai', '<div class="typing-indicator"><span></span><span></span><span></span></div>');
 
       try {
         const res = await fetch('/.netlify/functions/chat', {
@@ -2130,14 +2130,13 @@ const App = (() => {
   }
 
   function updateMessage(id, text) {
-    const div = el(`#${id}`);
-    if (div) {
-      // Converte quebras de linha em <br> para manter a formatação do Gemini
-      div.innerHTML = text.replace(/\n/g, '<br>');
-      const container = el('#chat-messages');
-      container.scrollTop = container.scrollHeight;
-    }
+  const div = el(`#${id}`);
+  if (div) {
+    div.innerHTML = marked.parse(text); // interpreta **, ###, -, --- etc. de verdade
+    const container = el('#chat-messages');
+    container.scrollTop = container.scrollHeight;
   }
+}
 
   return { 
     init, 
