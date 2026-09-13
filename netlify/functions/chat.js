@@ -1,7 +1,7 @@
-const { GoogleGenAI } = require('@google/genai');
-const crypto = require('crypto');
-const { readJSON, writeJSON } = require('./_shared/blobStore');
-const { verifyToken, cors } = require('./_shared/authMiddleware');
+import { GoogleGenAI } from '@google/genai';
+import crypto from 'crypto';
+import { readJSON, writeJSON } from './_shared/blobStore.js';
+import { verifyToken, cors } from './_shared/authMiddleware.js';
 
 const STORE = 'financas';
 
@@ -14,20 +14,20 @@ async function appendAudit(user, action, entity, entityId, before, after) {
   await writeJSON(STORE, 'audit.json', log.slice(0, 1000));
 }
 
-exports.handler = async (event) => {
+export default async (req) => {
   const headers = cors();
-  if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers, body: '' };
+  if (req.method === 'OPTIONS') return new Response('', { status: 204, headers });
 
-  const user = verifyToken(event);
-  if (!user) return { statusCode: 401, headers, body: JSON.stringify({ error: 'Não autenticado' }) };
-  if (event.httpMethod !== 'POST') return { statusCode: 405, headers, body: JSON.stringify({ error: 'Método não permitido' }) };
+  const user = verifyToken({ headers: Object.fromEntries(req.headers) });
+  if (!user) return Response.json({ error: 'Não autenticado' }, { status: 401, headers });
+  if (req.method !== 'POST') return Response.json({ error: 'Método não permitido' }, { status: 405, headers });
 
   try {
-    const { message, history } = JSON.parse(event.body);
-    
+    const { message, history } = await req.json();
+
     // NOVO: Instanciação do SDK atualizado
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-    
+
     const u1 = process.env.USER1_NAME || 'Pessoa 1';
     const u2 = process.env.USER2_NAME || 'Pessoa 2';
 
@@ -37,7 +37,7 @@ exports.handler = async (event) => {
     REGRA DE OURO 2: Se o usuário pedir planejamento de viagem, perguntar sobre o progresso das metas, ou checar o mercado, chame a função consultarDados para ler a base atualizada (objeto 'diarios_e_listas').
     REGRA DE OURO 3: Você pode sugerir de forma proativa se o casal consegue atingir uma Meta cruzando o "Saldo Restante" do mês com o valor faltante da meta.
     REGRA DE OURO 4: Seja claro, analítico, verdadeiro e amigável. Formate valores monetários sempre em R$.`;
-    
+
     const tools = [{
       functionDeclarations: [
         {
@@ -82,9 +82,9 @@ exports.handler = async (event) => {
         systemInstruction: systemInstruction,
         tools: tools
       },
-      history: history || [] 
+      history: history || []
     });
-    
+
     let result = await chat.sendMessage({ message });
     // NOVO: functionCalls agora é uma propriedade direta, não uma função invocável
     let functionCall = result.functionCalls && result.functionCalls[0];
@@ -100,7 +100,7 @@ exports.handler = async (event) => {
         const records = await readJSON(STORE, 'records.json', []);
         toolResponse = { transacoes: txs, configuracoes: settings, diarios_e_listas: records };
       }
-      
+
       else if (functionCall.name === 'criarLancamento') {
         const list = await readJSON(STORE, 'transactions.json', []);
         const newItem = {
@@ -112,8 +112,8 @@ exports.handler = async (event) => {
         await appendAudit(user, 'create', 'transaction', newItem.id, null, newItem);
         toolResponse = { sucesso: true, id: newItem.id };
         uiAction = 'RELOAD_DATA';
-      } 
-      
+      }
+
       else if (functionCall.name === 'excluirLancamento') {
         const list = await readJSON(STORE, 'transactions.json', []);
         const idx = list.findIndex(t => t.id === args.id);
@@ -137,16 +137,12 @@ exports.handler = async (event) => {
       });
     }
 
-    return { 
-      statusCode: 200, 
-      headers, 
-      body: JSON.stringify({ 
-        text: result.text, // NOVO: 'text' é uma propriedade e não mais .text()
-        uiAction 
-      }) 
-    };
+    return Response.json({
+      text: result.text, // NOVO: 'text' é uma propriedade e não mais .text()
+      uiAction
+    }, { status: 200, headers });
 
   } catch (error) {
-    return { statusCode: 500, headers, body: JSON.stringify({ error: error.message }) };
+    return Response.json({ error: error.message }, { status: 500, headers });
   }
 };
