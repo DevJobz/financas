@@ -372,7 +372,7 @@ const App = (() => {
                 </div>
                 <div style="display:flex; gap: 4px;">
                   <button class="icon-btn" onclick="App.addTripPlace('${trip.id}')" title="Adicionar Passeio/Local"><i class="ti ti-map-pin-plus"></i></button>
-                  <button class="icon-btn" onclick="App.deleteRecordEntry('${trip.id}')" title="Excluir Viagem"><i class="ti ti-trash"></i></button>
+                  <button class="icon-btn" onclick="App.deleteRecordEntry('${trip.id}')" title="Excluir Viagem Inteira"><i class="ti ti-trash"></i></button>
                 </div>
               </div>
               
@@ -384,7 +384,11 @@ const App = (() => {
                       <strong>${p.name}</strong>
                       ${p.link ? `<a href="${p.link}" target="_blank" style="color:var(--teal-500); margin-left:6px;" title="Ver local"><i class="ti ti-external-link"></i></a>` : ''}
                     </div>
-                    <span class="muted-small">Previsto: ${Utils.fmtBRL(p.estCost)}</span>
+                    <div style="display:flex; align-items:center; gap:8px;">
+                      <span class="muted-small">Previsto: ${Utils.fmtBRL(p.estCost)}</span>
+                      <button class="icon-btn" style="width:24px; height:24px; font-size:14px;" onclick="App.editTripPlace('${trip.id}', '${p.id}')"><i class="ti ti-edit"></i></button>
+                      <button class="icon-btn" style="width:24px; height:24px; font-size:14px;" onclick="App.deleteTripPlace('${trip.id}', '${p.id}')"><i class="ti ti-trash"></i></button>
+                    </div>
                   </li>
                 `).join('')}
               </ul>
@@ -452,9 +456,10 @@ const App = (() => {
                 <strong style="font-size: 15px; color: var(--ink);">${s.title}</strong>
                 <div class="muted-small" style="font-size: 12px; margin-top: 4px;">Ciclo: ${s.cycle}</div>
               </div>
-              <div style="display: flex; align-items: center; gap: 12px;">
-                <strong style="color: var(--coral-700); font-size: 15px;">${Utils.fmtBRL(s.cost)}</strong>
-                <button class="icon-btn" onclick="App.deleteRecordEntry('${s.id}')"><i class="ti ti-trash"></i></button>
+              <div style="display: flex; align-items: center; gap: 4px;">
+                <strong style="color: var(--coral-700); font-size: 15px; margin-right: 8px;">${Utils.fmtBRL(s.cost)}</strong>
+                <button class="icon-btn" onclick="App.editSubscription('${s.id}')" title="Editar"><i class="ti ti-edit"></i></button>
+                <button class="icon-btn" onclick="App.deleteRecordEntry('${s.id}')" title="Excluir"><i class="ti ti-trash"></i></button>
               </div>
             </div>
           `).join('')}
@@ -477,7 +482,8 @@ const App = (() => {
                 <div style="display: flex; justify-content: space-between;">
                   <strong>${lista.title}</strong>
                   <div style="display:flex; gap:4px;">
-                    ${!lista.linkedTxId ? `<button class="icon-btn" onclick="App.convertListToTx('${lista.id}', ${totalReal}, '${lista.title}')"><i class="ti ti-wallet"></i></button>` : ''}
+                    <button class="icon-btn" onclick="App.editList('${lista.id}')" title="Adicionar ou Marcar Itens"><i class="ti ti-edit"></i></button>
+                    ${!lista.linkedTxId ? `<button class="icon-btn" onclick="App.convertListToTx('${lista.id}', ${totalReal}, '${lista.title}')" title="Lançar no Financeiro"><i class="ti ti-wallet"></i></button>` : ''}
                     <button class="icon-btn" onclick="App.deleteRecordEntry('${lista.id}')"><i class="ti ti-trash"></i></button>
                   </div>
                 </div>
@@ -497,9 +503,15 @@ const App = (() => {
               <div style="border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px; border-left: 4px solid var(--teal-500);">
                 <div style="display: flex; justify-content: space-between;">
                   <strong>${m.vehicle}</strong>
-                  <button class="icon-btn" onclick="App.deleteRecordEntry('${m.id}')"><i class="ti ti-trash"></i></button>
+                  <div style="display:flex; gap:4px;">
+                    <button class="icon-btn" onclick="App.editMaintenance('${m.id}')" title="Editar"><i class="ti ti-edit"></i></button>
+                    <button class="icon-btn" onclick="App.deleteRecordEntry('${m.id}')" title="Excluir"><i class="ti ti-trash"></i></button>
+                  </div>
                 </div>
-                <div class="muted-small" style="font-size:12px;">${m.service} • ${m.km.toLocaleString('pt-BR')} KM</div>
+                <div style="display:flex; justify-content:space-between; margin-top:4px;">
+                  <div class="muted-small" style="font-size:12px;">${m.service} • ${m.km.toLocaleString('pt-BR')} KM</div>
+                  <strong style="font-size:13px; color:var(--coral-700);">${Utils.fmtBRL(m.cost)}</strong>
+                </div>
               </div>
             `).join('')}
           </div>
@@ -508,7 +520,7 @@ const App = (() => {
     `;
   }
 
-  // --- VIAGENS ---
+// --- VIAGENS ---
   async function newTrip() {
     const title = prompt("Nome da viagem/roteiro (ex: Férias Nordeste, Final de Semana SP):");
     if (!title) return;
@@ -523,47 +535,84 @@ const App = (() => {
     const name = prompt("Nome do local ou passeio (ex: Passeio de Buggy, Restaurante X):");
     if (!name) return;
     const link = prompt("Link de referência (Google Maps, Instagram, TripAdvisor) - Opcional:");
-    const estCost = prompt("Estimativa de custo nesse local? (Apenas números, use ponto para centavos):");
+    const estCost = prompt("Estimativa de custo nesse local? (Apenas números, use vírgula para centavos):");
 
-    const newPlaces = [...(trip.places || []), { id: crypto.randomUUID(), name, link, estCost: parseFloat(estCost) || 0 }];
+    const newPlaces = [...(trip.places || []), { id: crypto.randomUUID(), name, link, estCost: parseFloat((estCost || '0').replace(',', '.')) || 0 }];
     await saveRecord({ ...trip, places: newPlaces });
+  }
+
+  async function editTripPlace(tripId, placeId) {
+    const trip = state.records.find(r => r.id === tripId);
+    if (!trip) return;
+    const placeIdx = trip.places.findIndex(p => p.id === placeId);
+    if (placeIdx === -1) return;
+    
+    const p = trip.places[placeIdx];
+    const newName = prompt("Nome do local/passeio:", p.name);
+    if (newName === null) return;
+    const newLink = prompt("Link de referência:", p.link || '');
+    if (newLink === null) return;
+    const newCost = prompt("Estimativa de custo:", p.estCost.toString().replace('.', ','));
+    if (newCost === null) return;
+
+    trip.places[placeIdx] = { ...p, name: newName, link: newLink, estCost: parseFloat(newCost.replace(',', '.')) || 0 };
+    await saveRecord(trip);
+  }
+
+  async function deleteTripPlace(tripId, placeId) {
+    if (!confirm("Tem certeza que deseja excluir este local da viagem?")) return;
+    const trip = state.records.find(r => r.id === tripId);
+    if (!trip) return;
+    trip.places = trip.places.filter(p => p.id !== placeId);
+    await saveRecord(trip);
   }
 
   // --- ASSINATURAS ---
   async function newSubscription() {
-    const title = prompt("Qual o nome do serviço? (ex: Netflix, Spotify, Academia, iCloud)");
+    const title = prompt("Qual o nome do serviço? (ex: Netflix, Spotify, Academia)");
     if (!title) return;
-    const cost = prompt("Qual o valor pago? (Apenas números, use ponto para centavos)");
+    const cost = prompt("Qual o valor pago? (Use vírgula para centavos, ex: 20,90)");
     if (!cost) return;
     const cycle = prompt("Qual o ciclo de cobrança? (Digite 'Mensal' ou 'Anual')") || 'Mensal';
     
     await saveRecord({ 
-      type: 'subscription', 
-      title, 
-      cost: parseFloat(cost) || 0, 
-      cycle 
+      type: 'subscription', title, cycle, 
+      cost: parseFloat(cost.replace(',', '.')) || 0 
     });
+  }
+
+  async function editSubscription(id) {
+    const sub = state.records.find(r => r.id === id);
+    if (!sub) return;
+    
+    const title = prompt("Nome do serviço:", sub.title);
+    if (title === null) return;
+    const cost = prompt("Valor pago (use vírgula):", sub.cost.toString().replace('.', ','));
+    if (cost === null) return;
+    const cycle = prompt("Ciclo ('Mensal' ou 'Anual'):", sub.cycle);
+    if (cycle === null) return;
+
+    await saveRecord({ ...sub, title, cycle, cost: parseFloat(cost.replace(',', '.')) || 0 });
   }
 
   // --- METAS ---
   async function newGoal() {
-    const title = prompt("O que vocês querem alcançar juntos? (ex: Trocar TV, Reserva Emergência)");
+    const title = prompt("O que vocês querem alcançar juntos? (ex: Trocar TV)");
     if (!title) return;
     const target = prompt("Qual é o valor alvo? (R$)");
     if (!target) return;
-    await saveRecord({ type: 'goal', title, target: parseFloat(target) || 0, saved: 0 });
+    await saveRecord({ type: 'goal', title, target: parseFloat(target.replace(',', '.')) || 0, saved: 0 });
   }
 
   async function updateGoal(goalId, currentSaved) {
     const goal = state.records.find(r => r.id === goalId);
     if (!goal) return;
-    const newSaved = prompt(`Quanto vocês já têm guardado para "${goal.title}"?`, currentSaved);
-    if (newSaved === null) return; // Cancelou
-    await saveRecord({ ...goal, saved: parseFloat(newSaved) || 0 });
+    const newSaved = prompt(`Quanto vocês já têm guardado para "${goal.title}"?`, currentSaved.toString().replace('.', ','));
+    if (newSaved === null) return;
+    await saveRecord({ ...goal, saved: parseFloat(newSaved.replace(',', '.')) || 0 });
   }
 
-  // --- LÓGICA DE INTERAÇÃO DOS REGISTROS ---
-  
+  // --- LISTAS E MERCADO ---
   async function newList() {
     const title = prompt("Qual o nome desta lista? (ex: Mercado de Setembro, Assaí)");
     if (!title) return;
@@ -582,11 +631,8 @@ const App = (() => {
       const qty = prompt("Quantidade:", "1");
       
       const newItem = {
-        id: crypto.randomUUID(),
-        name: itemName,
-        price: 0,
-        qty: parseInt(qty) || 1,
-        checked: false
+        id: crypto.randomUUID(), name: itemName, price: 0,
+        qty: parseInt(qty) || 1, checked: false
       };
       
       lista.items = [...(lista.items || []), newItem];
@@ -595,34 +641,54 @@ const App = (() => {
     else if (action === '2') {
       const pendentes = (lista.items || []).filter(i => !i.checked);
       if (pendentes.length === 0) {
-        alert("Todos os itens já estão no carrinho!");
+        alert("Todos os itens desta lista já estão marcados no carrinho!");
         return;
       }
       
-      // Cria uma lista numerada para o usuário escolher
       const msg = pendentes.map((item, index) => `${index} - ${item.name} (${item.qty}x)`).join('\n');
       const idx = prompt(`Qual item você acabou de pegar?\nDigite o NÚMERO correspondente:\n\n${msg}`);
       
       if (idx !== null && pendentes[idx]) {
-        const realPrice = prompt(`Qual foi o preço unitário de '${pendentes[idx].name}'?`, "0.00");
-        pendentes[idx].price = parseFloat(realPrice) || 0;
+        const realPrice = prompt(`Qual foi o preço unitário de '${pendentes[idx].name}'? (Use vírgula)`, "0,00");
+        if(realPrice === null) return;
+        pendentes[idx].price = parseFloat(realPrice.replace(',', '.')) || 0;
         pendentes[idx].checked = true;
         await saveRecord(lista);
       }
     }
   }
 
+  // --- MANUTENÇÕES ---
   async function newMaintenance() {
     const vehicle = prompt("Qual o veículo/ativo? (ex: Moto, Carro, Casa)");
     if (!vehicle) return;
     const service = prompt("O que foi feito? (ex: Troca de Óleo, Pneu)");
     const km = prompt("Qual a quilometragem atual? (Apenas números)");
-    const cost = prompt("Qual foi o custo total? (Apenas números, use ponto para centavos)");
+    const cost = prompt("Qual foi o custo total? (Use vírgula para centavos)");
     
     await saveRecord({
       type: 'maintenance', vehicle, service, 
-      km: parseInt(km) || 0, cost: parseFloat(cost) || 0, 
+      km: parseInt(km) || 0, cost: parseFloat((cost || '0').replace(',', '.')) || 0, 
       date: new Date().toISOString().slice(0, 10)
+    });
+  }
+
+  async function editMaintenance(id) {
+    const m = state.records.find(r => r.id === id);
+    if (!m) return;
+    
+    const vehicle = prompt("Qual o veículo/ativo?", m.vehicle);
+    if (vehicle === null) return;
+    const service = prompt("O que foi feito?", m.service);
+    if (service === null) return;
+    const km = prompt("Qual a quilometragem atual?", m.km);
+    if (km === null) return;
+    const cost = prompt("Qual foi o custo total? (Use vírgula)", m.cost.toString().replace('.', ','));
+    if (cost === null) return;
+
+    await saveRecord({ 
+      ...m, vehicle, service, 
+      km: parseInt(km) || 0, cost: parseFloat(cost.replace(',', '.')) || 0 
     });
   }
 
@@ -2150,15 +2216,19 @@ const loadingId = appendMessage('ai', '<div class="typing-indicator"><span></spa
     openConfirmFixedModal,
     skipFixedMonth,
     newList,
-    editList,           // <-- Aqui está a função nova que faltava
+    editList,
     newMaintenance,
+    editMaintenance,        // <- NOVA
     deleteRecordEntry,
     convertListToTx,
     newTrip,
     addTripPlace,
+    editTripPlace,          // <- NOVA
+    deleteTripPlace,        // <- NOVA
     newGoal,
     updateGoal,
-    newSubscription
+    newSubscription,
+    editSubscription        // <- NOVA
   };
 })();
 
