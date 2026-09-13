@@ -356,7 +356,7 @@ const App = (() => {
       <section class="card">
         <div class="card-header" style="justify-content: space-between;">
           <h2><i class="ti ti-plane-departure"></i> Roteiros e Viagens</h2>
-          <button class="btn btn-primary" style="padding: 4px 10px; font-size: 12px;" onclick="App.newTrip()"><i class="ti ti-plus"></i> Nova Viagem</button>
+          <button class="btn btn-primary" style="padding: 4px 10px; font-size: 12px;" onclick="App.openTripModal()"><i class="ti ti-plus"></i> Nova Viagem</button>
         </div>
         <div style="display:flex; flex-direction:column; gap:12px;">
           ${trips.length === 0 ? '<p class="muted-small">Nenhuma viagem planejada no momento.</p>' : ''}
@@ -371,8 +371,8 @@ const App = (() => {
                   <span class="muted-small" style="display:block; font-size: 11px;">Mês previsto: ${Utils.monthLabel(trip.date.slice(0,7))}</span>
                 </div>
                 <div style="display:flex; gap: 4px;">
-                  <button class="icon-btn" onclick="App.addTripPlace('${trip.id}')" title="Adicionar Passeio/Local"><i class="ti ti-map-pin-plus"></i></button>
-                  <button class="icon-btn" onclick="App.deleteRecordEntry('${trip.id}')" title="Excluir Viagem Inteira"><i class="ti ti-trash"></i></button>
+                  <button class="icon-btn" onclick="App.openTripPlaceModal('${trip.id}')" title="Adicionar Local"><i class="ti ti-map-pin-plus"></i></button>
+                  <button class="icon-btn" onclick="App.deleteRecordEntry('${trip.id}')" title="Excluir Viagem"><i class="ti ti-trash"></i></button>
                 </div>
               </div>
               
@@ -382,17 +382,17 @@ const App = (() => {
                   <li style="display:flex; justify-content:space-between; align-items:center; background:var(--surface-sunken); padding:8px; border-radius:4px;">
                     <div>
                       <strong>${p.name}</strong>
-                      ${p.link ? `<a href="${p.link}" target="_blank" style="color:var(--teal-500); margin-left:6px;" title="Ver local"><i class="ti ti-external-link"></i></a>` : ''}
+                      ${p.link ? `<a href="${p.link}" target="_blank" style="color:var(--teal-500); margin-left:6px;" title="Ver link"><i class="ti ti-external-link"></i></a>` : ''}
                     </div>
                     <div style="display:flex; align-items:center; gap:8px;">
                       <span class="muted-small">Previsto: ${Utils.fmtBRL(p.estCost)}</span>
-                      <button class="icon-btn" style="width:24px; height:24px; font-size:14px;" onclick="App.editTripPlace('${trip.id}', '${p.id}')"><i class="ti ti-edit"></i></button>
-                      <button class="icon-btn" style="width:24px; height:24px; font-size:14px;" onclick="App.deleteTripPlace('${trip.id}', '${p.id}')"><i class="ti ti-trash"></i></button>
+                      <button class="icon-btn" style="width:24px; height:24px;" onclick="App.openTripPlaceModal('${trip.id}', '${p.id}')"><i class="ti ti-edit"></i></button>
+                      <button class="icon-btn" style="width:24px; height:24px;" onclick="App.deleteTripPlace('${trip.id}', '${p.id}')"><i class="ti ti-trash"></i></button>
                     </div>
                   </li>
                 `).join('')}
               </ul>
-              ` : '<p class="muted-small" style="font-size:12px; margin-bottom:12px;">Adicione locais e passeios a este roteiro.</p>'}
+              ` : '<p class="muted-small" style="font-size:12px; margin-bottom:12px;">Nenhum local adicionado ainda.</p>'}
               
               <div style="display: flex; justify-content: space-between; background: var(--teal-100); padding: 10px; border-radius: var(--radius-sm); align-items: center;">
                 <span style="color: var(--teal-900); font-size: 13px;">Orçamento Total Previsto:</span>
@@ -407,7 +407,7 @@ const App = (() => {
       <section class="card">
         <div class="card-header" style="justify-content: space-between;">
           <h2><i class="ti ti-target"></i> Metas do Casal</h2>
-          <button class="btn btn-primary" style="padding: 4px 10px; font-size: 12px;" onclick="App.newGoal()"><i class="ti ti-plus"></i> Nova Meta</button>
+          <button class="btn btn-primary" style="padding: 4px 10px; font-size: 12px;" onclick="App.openGoalModal()"><i class="ti ti-plus"></i> Nova Meta</button>
         </div>
         <div class="grid-2">
           ${goals.length === 0 ? '<p class="muted-small" style="grid-column:1/-1;">Nenhuma meta definida.</p>' : ''}
@@ -426,30 +426,27 @@ const App = (() => {
                 <span style="color:var(--teal-700); font-weight:bold;">${Utils.fmtBRL(g.saved)}</span>
                 <span class="muted-small">Alvo: ${Utils.fmtBRL(g.target)}</span>
               </div>
-              <button class="btn btn-ghost" style="width:100%; margin-top:10px; height:28px; font-size:11px;" onclick="App.updateGoal('${g.id}', ${g.saved})">Atualizar Valor Guardado</button>
+              <button class="btn btn-ghost" style="width:100%; margin-top:10px; height:28px; font-size:11px;" onclick="App.openGoalModal('${g.id}')">Atualizar Valor Guardado</button>
             </div>`;
           }).join('')}
         </div>
       </section>
 
-      <!-- SEÇÃO EXTRA: ASSINATURAS E SERVIÇOS RECORRENTES -->
+      <!-- SEÇÃO 3: ASSINATURAS -->
       <section class="card">
         <div class="card-header" style="justify-content: space-between;">
           <h2><i class="ti ti-repeat"></i> Gestão de Assinaturas</h2>
-          <button class="btn btn-primary" style="padding: 4px 10px; font-size: 12px;" onclick="App.newSubscription()"><i class="ti ti-plus"></i> Nova Assinatura</button>
+          <button class="btn btn-primary" style="padding: 4px 10px; font-size: 12px;" onclick="App.openSubModal()"><i class="ti ti-plus"></i> Nova Assinatura</button>
         </div>
-        
         ${subs.length > 0 ? `
         <div style="background: var(--surface-sunken); padding: 10px 14px; border-radius: var(--radius-sm); margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center;">
           <span class="muted-small">Total gasto por mês (estimativa):</span>
           <strong style="color: var(--coral-700); font-size: 16px;">
             ${Utils.fmtBRL(subs.reduce((acc, s) => acc + (s.cycle.toLowerCase() === 'anual' ? (parseFloat(s.cost)/12) : parseFloat(s.cost)), 0))}
           </strong>
-        </div>
-        ` : ''}
-
+        </div>` : ''}
         <div class="grid-2">
-          ${subs.length === 0 ? '<p class="muted-small" style="grid-column:1/-1;">Nenhuma assinatura registrada. Que ótimo!</p>' : ''}
+          ${subs.length === 0 ? '<p class="muted-small" style="grid-column:1/-1;">Nenhuma assinatura registrada.</p>' : ''}
           ${subs.map(s => `
             <div style="border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 14px; display: flex; justify-content: space-between; align-items: center;">
               <div>
@@ -458,36 +455,58 @@ const App = (() => {
               </div>
               <div style="display: flex; align-items: center; gap: 4px;">
                 <strong style="color: var(--coral-700); font-size: 15px; margin-right: 8px;">${Utils.fmtBRL(s.cost)}</strong>
-                <button class="icon-btn" onclick="App.editSubscription('${s.id}')" title="Editar"><i class="ti ti-edit"></i></button>
-                <button class="icon-btn" onclick="App.deleteRecordEntry('${s.id}')" title="Excluir"><i class="ti ti-trash"></i></button>
+                <button class="icon-btn" onclick="App.openSubModal('${s.id}')"><i class="ti ti-edit"></i></button>
+                <button class="icon-btn" onclick="App.deleteRecordEntry('${s.id}')"><i class="ti ti-trash"></i></button>
               </div>
             </div>
           `).join('')}
         </div>
       </section>
 
-      <!-- SEÇÃO 3: MERCADO E MANUTENÇÕES (Lado a lado em telas grandes) -->
+      <!-- SEÇÃO 4: MERCADO E MANUTENÇÕES -->
       <div class="grid-2">
         <section class="card">
           <div class="card-header" style="justify-content: space-between;">
             <h2><i class="ti ti-shopping-cart"></i> Mercado</h2>
-            <button class="icon-btn" onclick="App.newList()"><i class="ti ti-plus"></i></button>
+            <button class="btn btn-primary" style="padding: 4px 10px; font-size: 12px;" onclick="App.openListModal()"><i class="ti ti-plus"></i> Nova Lista</button>
           </div>
-          <div style="display:flex; flex-direction:column; gap:12px;">
+          <div style="display:flex; flex-direction:column; gap:16px;">
+            ${listas.length === 0 ? '<p class="muted-small">Nenhuma lista de mercado criada.</p>' : ''}
             ${listas.map(lista => {
-              const checkedItems = (lista.items || []).filter(i => i.checked);
-              const totalReal = checkedItems.reduce((acc, i) => acc + ((parseFloat(i.price) || 0) * (parseInt(i.qty) || 1)), 0);
+              const items = lista.items || [];
+              const totalReal = items.filter(i => i.checked).reduce((acc, i) => acc + ((parseFloat(i.price) || 0) * (parseInt(i.qty) || 1)), 0);
               return `
-              <div style="border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px;">
-                <div style="display: flex; justify-content: space-between;">
-                  <strong>${lista.title}</strong>
+              <div style="border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px; background: var(--surface-sunken);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                  <strong style="font-size: 15px; color: var(--teal-900);">${lista.title}</strong>
                   <div style="display:flex; gap:4px;">
-                    <button class="icon-btn" onclick="App.editList('${lista.id}')" title="Adicionar ou Marcar Itens"><i class="ti ti-edit"></i></button>
+                    <button class="icon-btn" onclick="App.openAddItemModal('${lista.id}')" title="Adicionar Item"><i class="ti ti-plus"></i></button>
                     ${!lista.linkedTxId ? `<button class="icon-btn" onclick="App.convertListToTx('${lista.id}', ${totalReal}, '${lista.title}')" title="Lançar no Financeiro"><i class="ti ti-wallet"></i></button>` : ''}
-                    <button class="icon-btn" onclick="App.deleteRecordEntry('${lista.id}')"><i class="ti ti-trash"></i></button>
+                    <button class="icon-btn" onclick="App.deleteRecordEntry('${lista.id}')" title="Excluir Lista"><i class="ti ti-trash"></i></button>
                   </div>
                 </div>
-                <div style="font-size:12px; margin-top:4px;">No carrinho: <strong>${Utils.fmtBRL(totalReal)}</strong></div>
+
+                <!-- ITENS DA LISTA DIRETOS NA TELA -->
+                <div style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px;">
+                  ${items.length === 0 ? '<span class="muted-small" style="font-size: 12px;">Nenhum item adicionado. Clique no + para incluir.</span>' : ''}
+                  ${items.map(item => `
+                    <div style="display: flex; align-items: center; justify-content: space-between; background: var(--surface); padding: 6px 10px; border-radius: 4px; font-size: 13px;">
+                      <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; flex: 1; margin:0;">
+                        <input type="checkbox" ${item.checked ? 'checked' : ''} onchange="App.toggleItemCheck('${lista.id}', '${item.id}')" style="width: 16px; height: 16px;" />
+                        <span style="${item.checked ? 'text-decoration: line-through; opacity: 0.6;' : ''}">${item.name} (${item.qty}x)</span>
+                      </label>
+                      <div style="display: flex; align-items: center; gap: 6px;">
+                        <input type="text" placeholder="R$ 0,00" value="${item.price ? item.price.toFixed(2).replace('.', ',') : ''}" onchange="App.updateItemPrice('${lista.id}', '${item.id}', this.value)" style="width: 80px; height: 28px; font-size: 12px; text-align: right; padding: 0 6px;" />
+                        <button class="icon-btn" style="width:24px; height:24px;" onclick="App.deleteItemFromList('${lista.id}', '${item.id}')"><i class="ti ti-trash"></i></button>
+                      </div>
+                    </div>
+                  `).join('')}
+                </div>
+
+                <div style="display: flex; justify-content: space-between; font-size: 13px; border-top: 1px dashed var(--line); padding-top: 6px;">
+                  <span class="muted-small">Total no Carrinho:</span>
+                  <strong style="color: var(--teal-700);">${Utils.fmtBRL(totalReal)}</strong>
+                </div>
               </div>`;
             }).join('')}
           </div>
@@ -496,16 +515,17 @@ const App = (() => {
         <section class="card">
           <div class="card-header" style="justify-content: space-between;">
             <h2><i class="ti ti-tool"></i> Veículos / Casa</h2>
-            <button class="icon-btn" onclick="App.newMaintenance()"><i class="ti ti-plus"></i></button>
+            <button class="btn btn-primary" style="padding: 4px 10px; font-size: 12px;" onclick="App.openMaintenanceModal()"><i class="ti ti-plus"></i> Novo Serviço</button>
           </div>
           <div style="display:flex; flex-direction:column; gap:12px;">
+            ${manuts.length === 0 ? '<p class="muted-small">Nenhum registro de manutenção.</p>' : ''}
             ${manuts.map(m => `
               <div style="border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px; border-left: 4px solid var(--teal-500);">
                 <div style="display: flex; justify-content: space-between;">
                   <strong>${m.vehicle}</strong>
                   <div style="display:flex; gap:4px;">
-                    <button class="icon-btn" onclick="App.editMaintenance('${m.id}')" title="Editar"><i class="ti ti-edit"></i></button>
-                    <button class="icon-btn" onclick="App.deleteRecordEntry('${m.id}')" title="Excluir"><i class="ti ti-trash"></i></button>
+                    <button class="icon-btn" onclick="App.openMaintenanceModal('${m.id}')"><i class="ti ti-edit"></i></button>
+                    <button class="icon-btn" onclick="App.deleteRecordEntry('${m.id}')"><i class="ti ti-trash"></i></button>
                   </div>
                 </div>
                 <div style="display:flex; justify-content:space-between; margin-top:4px;">
@@ -520,43 +540,95 @@ const App = (() => {
     `;
   }
 
-// --- VIAGENS ---
-  async function newTrip() {
-    const title = prompt("Nome da viagem/roteiro (ex: Férias Nordeste, Final de Semana SP):");
-    if (!title) return;
-    const dataMes = prompt("Qual o mês previsto? (Formato AAAA-MM, ex: 2026-11)");
-    await saveRecord({ type: 'trip', title, date: dataMes || new Date().toISOString().slice(0, 10), places: [] });
+// --- LIFE HUB: VIAGENS, ASSINATURAS, METAS, MERCADO E MANUTENÇÕES ---
+
+  async function deleteRecordEntry(id) {
+    if (!confirm("Tem certeza que deseja excluir este registro?")) return;
+    try {
+      await Api.deleteRecord(id);
+      await loadData();
+      renderView();
+      showToast('Registro excluído com sucesso.', 'success');
+    } catch (e) {
+      showToast(e.message, 'danger');
+    }
   }
 
-  async function addTripPlace(tripId) {
-    const trip = state.records.find(r => r.id === tripId);
-    if (!trip) return;
-
-    const name = prompt("Nome do local ou passeio (ex: Passeio de Buggy, Restaurante X):");
-    if (!name) return;
-    const link = prompt("Link de referência (Google Maps, Instagram, TripAdvisor) - Opcional:");
-    const estCost = prompt("Estimativa de custo nesse local? (Apenas números, use vírgula para centavos):");
-
-    const newPlaces = [...(trip.places || []), { id: crypto.randomUUID(), name, link, estCost: parseFloat((estCost || '0').replace(',', '.')) || 0 }];
-    await saveRecord({ ...trip, places: newPlaces });
-  }
-
-  async function editTripPlace(tripId, placeId) {
-    const trip = state.records.find(r => r.id === tripId);
-    if (!trip) return;
-    const placeIdx = trip.places.findIndex(p => p.id === placeId);
-    if (placeIdx === -1) return;
+  // 1. Viagens e Roteiros
+  function openTripModal() {
+    el('#modal-root').innerHTML = `
+      <div class="modal-overlay" id="modal-overlay">
+        <div class="modal-sheet">
+          <div class="modal-header">
+            <h2>Nova Viagem / Roteiro</h2>
+            <button class="icon-btn" id="modal-close"><i class="ti ti-x"></i></button>
+          </div>
+          <form id="form-trip" class="form-grid">
+            <label>Nome da Viagem<input type="text" id="trip-title" placeholder="Ex: Férias Nordeste" required /></label>
+            <label>Mês Previsto<input type="month" id="trip-date" value="${Utils.currentMonthKey()}" required /></label>
+            <div class="modal-actions" style="grid-column:1/-1; display:flex; justify-content:flex-end; gap:8px;">
+              <button type="button" class="btn btn-ghost" id="btn-cancel">Cancelar</button>
+              <button type="submit" class="btn btn-primary">Salvar Viagem</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `;
+    el('#modal-close').addEventListener('click', closeModal);
+    el('#btn-cancel').addEventListener('click', closeModal);
+    el('#modal-overlay').addEventListener('click', e => { if(e.target.id === 'modal-overlay') closeModal(); });
     
-    const p = trip.places[placeIdx];
-    const newName = prompt("Nome do local/passeio:", p.name);
-    if (newName === null) return;
-    const newLink = prompt("Link de referência:", p.link || '');
-    if (newLink === null) return;
-    const newCost = prompt("Estimativa de custo:", p.estCost.toString().replace('.', ','));
-    if (newCost === null) return;
+    el('#form-trip').addEventListener('submit', async e => {
+      e.preventDefault();
+      const title = el('#trip-title').value.trim();
+      const date = el('#trip-date').value;
+      closeModal();
+      await saveRecord({ type: 'trip', title, date: `${date}-01`, places: [] });
+    });
+  }
 
-    trip.places[placeIdx] = { ...p, name: newName, link: newLink, estCost: parseFloat(newCost.replace(',', '.')) || 0 };
-    await saveRecord(trip);
+  function openTripPlaceModal(tripId, placeId = null) {
+    const trip = state.records.find(r => r.id === tripId);
+    if(!trip) return;
+    const place = placeId ? trip.places.find(p => p.id === placeId) : null;
+
+    el('#modal-root').innerHTML = `
+      <div class="modal-overlay" id="modal-overlay">
+        <div class="modal-sheet">
+          <div class="modal-header">
+            <h2>${place ? 'Editar Local' : 'Adicionar Local'}</h2>
+            <button class="icon-btn" id="modal-close"><i class="ti ti-x"></i></button>
+          </div>
+          <form id="form-place" class="form-grid">
+            <label>Nome do Local / Passeio<input type="text" id="place-name" value="${place ? place.name : ''}" required /></label>
+            <label>Link de Referência (Opcional)<input type="url" id="place-link" value="${place ? (place.link || '') : ''}" placeholder="https://..." /></label>
+            <label>Custo Previsto (R$)<input type="text" id="place-cost" value="${place ? place.estCost.toString().replace('.', ',') : ''}" placeholder="0,00" /></label>
+            <div class="modal-actions" style="grid-column:1/-1; display:flex; justify-content:flex-end; gap:8px;">
+              <button type="button" class="btn btn-ghost" id="btn-cancel">Cancelar</button>
+              <button type="submit" class="btn btn-primary">Salvar</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `;
+    el('#modal-close').addEventListener('click', closeModal);
+    el('#btn-cancel').addEventListener('click', closeModal);
+    el('#modal-overlay').addEventListener('click', e => { if(e.target.id === 'modal-overlay') closeModal(); });
+
+    el('#form-place').addEventListener('submit', async e => {
+      e.preventDefault();
+      const name = el('#place-name').value.trim();
+      const link = el('#place-link').value.trim();
+      const estCost = parseFloat(el('#place-cost').value.replace(',', '.')) || 0;
+      
+      if(place) {
+        trip.places = trip.places.map(p => p.id === placeId ? { ...p, name, link, estCost } : p);
+      } else {
+        trip.places = [...(trip.places || []), { id: crypto.randomUUID(), name, link, estCost }];
+      }
+      closeModal();
+      await saveRecord(trip);
+    });
   }
 
   async function deleteTripPlace(tripId, placeId) {
@@ -567,135 +639,224 @@ const App = (() => {
     await saveRecord(trip);
   }
 
-  // --- ASSINATURAS ---
-  async function newSubscription() {
-    const title = prompt("Qual o nome do serviço? (ex: Netflix, Spotify, Academia)");
-    if (!title) return;
-    const cost = prompt("Qual o valor pago? (Use vírgula para centavos, ex: 20,90)");
-    if (!cost) return;
-    const cycle = prompt("Qual o ciclo de cobrança? (Digite 'Mensal' ou 'Anual')") || 'Mensal';
-    
-    await saveRecord({ 
-      type: 'subscription', title, cycle, 
-      cost: parseFloat(cost.replace(',', '.')) || 0 
+  // 2. Assinaturas
+  function openSubModal(subId = null) {
+    const sub = subId ? state.records.find(r => r.id === subId) : null;
+    el('#modal-root').innerHTML = `
+      <div class="modal-overlay" id="modal-overlay">
+        <div class="modal-sheet">
+          <div class="modal-header">
+            <h2>${sub ? 'Editar Assinatura' : 'Nova Assinatura'}</h2>
+            <button class="icon-btn" id="modal-close"><i class="ti ti-x"></i></button>
+          </div>
+          <form id="form-sub" class="form-grid">
+            <label>Nome do Serviço<input type="text" id="sub-title" value="${sub ? sub.title : ''}" required /></label>
+            <label>Valor (R$)<input type="text" id="sub-cost" value="${sub ? sub.cost.toString().replace('.', ',') : ''}" placeholder="20,90" required /></label>
+            <label>Ciclo
+              <select id="sub-cycle">
+                <option value="Mensal" ${sub && sub.cycle === 'Mensal' ? 'selected' : ''}>Mensal</option>
+                <option value="Anual" ${sub && sub.cycle === 'Anual' ? 'selected' : ''}>Anual</option>
+              </select>
+            </label>
+            <div class="modal-actions" style="grid-column:1/-1; display:flex; justify-content:flex-end; gap:8px;">
+              <button type="button" class="btn btn-ghost" id="btn-cancel">Cancelar</button>
+              <button type="submit" class="btn btn-primary">Salvar</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `;
+    el('#modal-close').addEventListener('click', closeModal);
+    el('#btn-cancel').addEventListener('click', closeModal);
+    el('#modal-overlay').addEventListener('click', e => { if(e.target.id === 'modal-overlay') closeModal(); });
+
+    el('#form-sub').addEventListener('submit', async e => {
+      e.preventDefault();
+      const title = el('#sub-title').value.trim();
+      const cost = parseFloat(el('#sub-cost').value.replace(',', '.')) || 0;
+      const cycle = el('#sub-cycle').value;
+      closeModal();
+      if(sub) {
+        await saveRecord({ ...sub, title, cost, cycle });
+      } else {
+        await saveRecord({ type: 'subscription', title, cost, cycle });
+      }
     });
   }
 
-  async function editSubscription(id) {
-    const sub = state.records.find(r => r.id === id);
-    if (!sub) return;
-    
-    const title = prompt("Nome do serviço:", sub.title);
-    if (title === null) return;
-    const cost = prompt("Valor pago (use vírgula):", sub.cost.toString().replace('.', ','));
-    if (cost === null) return;
-    const cycle = prompt("Ciclo ('Mensal' ou 'Anual'):", sub.cycle);
-    if (cycle === null) return;
+  // 3. Metas do Casal
+  function openGoalModal(goalId = null) {
+    const goal = goalId ? state.records.find(r => r.id === goalId) : null;
+    el('#modal-root').innerHTML = `
+      <div class="modal-overlay" id="modal-overlay">
+        <div class="modal-sheet">
+          <div class="modal-header">
+            <h2>${goal ? 'Atualizar Valor Guardado' : 'Nova Meta do Casal'}</h2>
+            <button class="icon-btn" id="modal-close"><i class="ti ti-x"></i></button>
+          </div>
+          <form id="form-goal" class="form-grid">
+            ${!goal ? `
+              <label>O que querem alcançar?<input type="text" id="goal-title" required /></label>
+              <label>Valor Alvo (R$)<input type="text" id="goal-target" required /></label>
+            ` : `<label>Quanto já têm guardado para "${goal.title}"? (R$)<input type="text" id="goal-saved" value="${goal.saved.toString().replace('.', ',')}" required /></label>`}
+            <div class="modal-actions" style="grid-column:1/-1; display:flex; justify-content:flex-end; gap:8px;">
+              <button type="button" class="btn btn-ghost" id="btn-cancel">Cancelar</button>
+              <button type="submit" class="btn btn-primary">Salvar</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `;
+    el('#modal-close').addEventListener('click', closeModal);
+    el('#btn-cancel').addEventListener('click', closeModal);
+    el('#modal-overlay').addEventListener('click', e => { if(e.target.id === 'modal-overlay') closeModal(); });
 
-    await saveRecord({ ...sub, title, cycle, cost: parseFloat(cost.replace(',', '.')) || 0 });
+    el('#form-goal').addEventListener('submit', async e => {
+      e.preventDefault();
+      closeModal();
+      if(goal) {
+        const saved = parseFloat(el('#goal-saved').value.replace(',', '.')) || 0;
+        await saveRecord({ ...goal, saved });
+      } else {
+        const title = el('#goal-title').value.trim();
+        const target = parseFloat(el('#goal-target').value.replace(',', '.')) || 0;
+        await saveRecord({ type: 'goal', title, target, saved: 0 });
+      }
+    });
   }
 
-  // --- METAS ---
-  async function newGoal() {
-    const title = prompt("O que vocês querem alcançar juntos? (ex: Trocar TV)");
-    if (!title) return;
-    const target = prompt("Qual é o valor alvo? (R$)");
-    if (!target) return;
-    await saveRecord({ type: 'goal', title, target: parseFloat(target.replace(',', '.')) || 0, saved: 0 });
+  // 4. Mercado / Listas
+  function openListModal() {
+    el('#modal-root').innerHTML = `
+      <div class="modal-overlay" id="modal-overlay">
+        <div class="modal-sheet">
+          <div class="modal-header">
+            <h2>Nova Lista de Mercado</h2>
+            <button class="icon-btn" id="modal-close"><i class="ti ti-x"></i></button>
+          </div>
+          <form id="form-list" class="form-grid">
+            <label>Nome do Mercado / Lista<input type="text" id="list-title" placeholder="Ex: Assaí Setembro" required /></label>
+            <div class="modal-actions" style="grid-column:1/-1; display:flex; justify-content:flex-end; gap:8px;">
+              <button type="button" class="btn btn-ghost" id="btn-cancel">Cancelar</button>
+              <button type="submit" class="btn btn-primary">Criar Lista</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `;
+    el('#modal-close').addEventListener('click', closeModal);
+    el('#btn-cancel').addEventListener('click', closeModal);
+    el('#modal-overlay').addEventListener('click', e => { if(e.target.id === 'modal-overlay') closeModal(); });
+
+    el('#form-list').addEventListener('submit', async e => {
+      e.preventDefault();
+      const title = el('#list-title').value.trim();
+      closeModal();
+      await saveRecord({ type: 'shopping', title, date: new Date().toISOString().slice(0, 10), items: [] });
+    });
   }
 
-  async function updateGoal(goalId, currentSaved) {
-    const goal = state.records.find(r => r.id === goalId);
-    if (!goal) return;
-    const newSaved = prompt(`Quanto vocês já têm guardado para "${goal.title}"?`, currentSaved.toString().replace('.', ','));
-    if (newSaved === null) return;
-    await saveRecord({ ...goal, saved: parseFloat(newSaved.replace(',', '.')) || 0 });
-  }
+  function openAddItemModal(listId) {
+    el('#modal-root').innerHTML = `
+      <div class="modal-overlay" id="modal-overlay">
+        <div class="modal-sheet">
+          <div class="modal-header">
+            <h2>Adicionar Item à Lista</h2>
+            <button class="icon-btn" id="modal-close"><i class="ti ti-x"></i></button>
+          </div>
+          <form id="form-item" class="form-grid">
+            <label>Nome do Item<input type="text" id="item-name" placeholder="Ex: Cuscuz, Arroz" required /></label>
+            <label>Quantidade<input type="number" min="1" id="item-qty" value="1" required /></label>
+            <div class="modal-actions" style="grid-column:1/-1; display:flex; justify-content:flex-end; gap:8px;">
+              <button type="button" class="btn btn-ghost" id="btn-cancel">Cancelar</button>
+              <button type="submit" class="btn btn-primary">Adicionar</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `;
+    el('#modal-close').addEventListener('click', closeModal);
+    el('#btn-cancel').addEventListener('click', closeModal);
+    el('#modal-overlay').addEventListener('click', e => { if(e.target.id === 'modal-overlay') closeModal(); });
 
-  // --- LISTAS E MERCADO ---
-  async function newList() {
-    const title = prompt("Qual o nome desta lista? (ex: Mercado de Setembro, Assaí)");
-    if (!title) return;
-    await saveRecord({ type: 'shopping', title, date: new Date().toISOString().slice(0, 10), items: [] });
-  }
-
-  async function editList(listId) {
-    const lista = state.records.find(r => r.id === listId);
-    if (!lista) return;
-
-    const action = prompt(`Lista: ${lista.title}\n\nO que deseja fazer?\n1 - Adicionar item à lista\n2 - Marcar item que coloquei no carrinho (Dar baixa)\n\nDigite 1 ou 2:`);
-    
-    if (action === '1') {
-      const itemName = prompt("O que você precisa comprar?");
-      if (!itemName) return;
-      const qty = prompt("Quantidade:", "1");
+    el('#form-item').addEventListener('submit', async e => {
+      e.preventDefault();
+      const lista = state.records.find(r => r.id === listId);
+      if(!lista) return;
       
-      const newItem = {
-        id: crypto.randomUUID(), name: itemName, price: 0,
-        qty: parseInt(qty) || 1, checked: false
-      };
+      const name = el('#item-name').value.trim();
+      const qty = parseInt(el('#item-qty').value) || 1;
       
+      const newItem = { id: crypto.randomUUID(), name, qty, price: 0, checked: false };
       lista.items = [...(lista.items || []), newItem];
+      closeModal();
       await saveRecord(lista);
-    } 
-    else if (action === '2') {
-      const pendentes = (lista.items || []).filter(i => !i.checked);
-      if (pendentes.length === 0) {
-        alert("Todos os itens desta lista já estão marcados no carrinho!");
-        return;
-      }
-      
-      const msg = pendentes.map((item, index) => `${index} - ${item.name} (${item.qty}x)`).join('\n');
-      const idx = prompt(`Qual item você acabou de pegar?\nDigite o NÚMERO correspondente:\n\n${msg}`);
-      
-      if (idx !== null && pendentes[idx]) {
-        const realPrice = prompt(`Qual foi o preço unitário de '${pendentes[idx].name}'? (Use vírgula)`, "0,00");
-        if(realPrice === null) return;
-        pendentes[idx].price = parseFloat(realPrice.replace(',', '.')) || 0;
-        pendentes[idx].checked = true;
-        await saveRecord(lista);
-      }
-    }
-  }
-
-  // --- MANUTENÇÕES ---
-  async function newMaintenance() {
-    const vehicle = prompt("Qual o veículo/ativo? (ex: Moto, Carro, Casa)");
-    if (!vehicle) return;
-    const service = prompt("O que foi feito? (ex: Troca de Óleo, Pneu)");
-    const km = prompt("Qual a quilometragem atual? (Apenas números)");
-    const cost = prompt("Qual foi o custo total? (Use vírgula para centavos)");
-    
-    await saveRecord({
-      type: 'maintenance', vehicle, service, 
-      km: parseInt(km) || 0, cost: parseFloat((cost || '0').replace(',', '.')) || 0, 
-      date: new Date().toISOString().slice(0, 10)
     });
   }
 
-  async function editMaintenance(id) {
-    const m = state.records.find(r => r.id === id);
-    if (!m) return;
-    
-    const vehicle = prompt("Qual o veículo/ativo?", m.vehicle);
-    if (vehicle === null) return;
-    const service = prompt("O que foi feito?", m.service);
-    if (service === null) return;
-    const km = prompt("Qual a quilometragem atual?", m.km);
-    if (km === null) return;
-    const cost = prompt("Qual foi o custo total? (Use vírgula)", m.cost.toString().replace('.', ','));
-    if (cost === null) return;
-
-    await saveRecord({ 
-      ...m, vehicle, service, 
-      km: parseInt(km) || 0, cost: parseFloat(cost.replace(',', '.')) || 0 
-    });
+  async function toggleItemCheck(listId, itemId) {
+    const lista = state.records.find(r => r.id === listId);
+    if(!lista) return;
+    lista.items = lista.items.map(i => i.id === itemId ? { ...i, checked: !i.checked } : i);
+    await saveRecord(lista);
   }
 
-  async function deleteRecordEntry(id) {
-    if (!confirm('Deseja excluir este registro do diário?')) return;
-    await Api.deleteRecord(id);
-    await loadData(); renderView();
+  async function updateItemPrice(listId, itemId, priceStr) {
+    const lista = state.records.find(r => r.id === listId);
+    if(!lista) return;
+    const price = parseFloat(priceStr.replace(',', '.')) || 0;
+    lista.items = lista.items.map(i => i.id === itemId ? { ...i, price, checked: true } : i);
+    await saveRecord(lista);
+  }
+
+  async function deleteItemFromList(listId, itemId) {
+    const lista = state.records.find(r => r.id === listId);
+    if(!lista) return;
+    lista.items = lista.items.filter(i => i.id !== itemId);
+    await saveRecord(lista);
+  }
+
+  // 5. Manutenções
+  function openMaintenanceModal(id = null) {
+    const m = id ? state.records.find(r => r.id === id) : null;
+    el('#modal-root').innerHTML = `
+      <div class="modal-overlay" id="modal-overlay">
+        <div class="modal-sheet">
+          <div class="modal-header">
+            <h2>${m ? 'Editar Manutenção' : 'Novo Serviço / Manutenção'}</h2>
+            <button class="icon-btn" id="modal-close"><i class="ti ti-x"></i></button>
+          </div>
+          <form id="form-maint" class="form-grid">
+            <label>Veículo / Ativo<input type="text" id="m-vehicle" value="${m ? m.vehicle : ''}" placeholder="Ex: Moto, Carro" required /></label>
+            <label>Serviço Realizado<input type="text" id="m-service" value="${m ? m.service : ''}" placeholder="Ex: Troca de óleo" required /></label>
+            <label>Quilometragem (KM)<input type="number" id="m-km" value="${m ? m.km : ''}" required /></label>
+            <label>Custo Total (R$)<input type="text" id="m-cost" value="${m ? m.cost.toString().replace('.', ',') : ''}" placeholder="0,00" required /></label>
+            <div class="modal-actions" style="grid-column:1/-1; display:flex; justify-content:flex-end; gap:8px;">
+              <button type="button" class="btn btn-ghost" id="btn-cancel">Cancelar</button>
+              <button type="submit" class="btn btn-primary">Salvar</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `;
+    el('#modal-close').addEventListener('click', closeModal);
+    el('#btn-cancel').addEventListener('click', closeModal);
+    el('#modal-overlay').addEventListener('click', e => { if(e.target.id === 'modal-overlay') closeModal(); });
+
+    el('#form-maint').addEventListener('submit', async e => {
+      e.preventDefault();
+      const vehicle = el('#m-vehicle').value.trim();
+      const service = el('#m-service').value.trim();
+      const km = parseInt(el('#m-km').value) || 0;
+      const cost = parseFloat(el('#m-cost').value.replace(',', '.')) || 0;
+      closeModal();
+
+      if(m) {
+        await saveRecord({ ...m, vehicle, service, km, cost });
+      } else {
+        await saveRecord({ type: 'maintenance', vehicle, service, km, cost, date: new Date().toISOString().slice(0, 10) });
+      }
+    });
   }
 
   function convertListToTx(recordId, totalAmount, title) {
@@ -2215,20 +2376,19 @@ const loadingId = appendMessage('ai', '<div class="typing-indicator"><span></spa
     openFixedModal,
     openConfirmFixedModal,
     skipFixedMonth,
-    newList,
-    editList,
-    newMaintenance,
-    editMaintenance,        // <- NOVA
+    openListModal,
+    openAddItemModal,
+    toggleItemCheck,
+    updateItemPrice,
+    deleteItemFromList,
+    openMaintenanceModal,
     deleteRecordEntry,
     convertListToTx,
-    newTrip,
-    addTripPlace,
-    editTripPlace,          // <- NOVA
-    deleteTripPlace,        // <- NOVA
-    newGoal,
-    updateGoal,
-    newSubscription,
-    editSubscription        // <- NOVA
+    openTripModal,
+    openTripPlaceModal,
+    deleteTripPlace,
+    openGoalModal,
+    openSubModal
   };
 })();
 
