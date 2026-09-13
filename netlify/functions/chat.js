@@ -77,13 +77,13 @@ export default async (req) => {
 
     // NOVO: Estrutura do chat via ai.chats.create
     const chat = ai.chats.create({
-      model: "gemini-2.5-flash",
-      config: {
-        systemInstruction: systemInstruction,
-        tools: tools
-      },
-      history: history || []
-    });
+  model: "gemini-3.6-flash",   // era "gemini-2.5-flash"
+  config: {
+    systemInstruction: systemInstruction,
+    tools: tools
+  },
+  history: history || []
+});
 
     let result = await chat.sendMessage({ message });
     // NOVO: functionCalls agora é uma propriedade direta, não uma função invocável
