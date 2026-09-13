@@ -4,6 +4,10 @@ const Auth = (() => {
     return raw ? JSON.parse(raw) : null;
   }
 
+  function getToken() {
+    return localStorage.getItem('fc_token');
+  }
+
   function isLoggedIn() {
     return !!localStorage.getItem('fc_token');
   }
@@ -19,5 +23,5 @@ const Auth = (() => {
     window.location.reload();
   }
 
-  return { getUser, isLoggedIn, saveSession, logout };
+  return { getUser, getToken, isLoggedIn, saveSession, logout };
 })();
