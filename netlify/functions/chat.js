@@ -28,7 +28,7 @@ async function saveSessions(sessions) {
 async function generateTitle(ai, userMsg, aiMsg) {
   try {
     const r = await ai.models.generateContent({
-      model: 'gemini-3.6-flash',
+      model: 'gemini-3.5-flash-lite',
       contents: `Gere um título curto (3 a 6 palavras, sem aspas, sem ponto final no fim) para esta conversa de um app financeiro de casal, baseado na troca abaixo. Responda APENAS com o título, nada mais.\n\nUsuário: ${userMsg}\nAssistente: ${String(aiMsg || '').slice(0, 300)}`
     });
     const title = (r.text || '').trim().replace(/^["'“”]+|["'“”]+$/g, '').replace(/\.$/, '');
@@ -195,7 +195,7 @@ export default async (req) => {
     }];
 
     const chat = ai.chats.create({
-      model: "gemini-3.6-flash",
+      model: "gemini-3.5-flash-lite",
       config: {
         systemInstruction: systemInstruction,
         tools: tools
