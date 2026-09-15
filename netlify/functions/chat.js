@@ -103,13 +103,13 @@ export default async (req) => {
     REGRA DE OURO 4: Seja claro, analítico, verdadeiro e amigável. Valores sempre em R$.
     REGRA DE OURO 5: Use SEMPRE resumoMensal[chave] para saldo/receitas/despesas de um mês. NUNCA some 'transacoes' brutas por conta própria.
     REGRA DE OURO 6: Para editar um lançamento (inclusive marcar como pago/recebido ou reabrir), use editarLancamento com o id e só os campos que mudaram — inclusive status ('aberto' ou 'ok'). Para marcar VÁRIOS de uma vez, use atualizarStatusEmMassa.
-    REGRA DE OURO 7: Para metas/viagens/assinaturas/mercado/manutenções use criarOuAtualizarRegistro/excluirRegistro. Para a regra de um lançamento fixo recorrente use criarOuAtualizarLancamentoFixo/excluirLancamentoFixo. Para cartões use criarOuAtualizarCartao/excluirCartao.
+    REGRA DE OURO 7: Para o Life Hub, use criarOuAtualizarRegistro/excluirRegistro com o 'tipo' EXATO: 'goal' (meta), 'trip' (viagem), 'subscription' (assinatura), 'shopping' (lista de mercado) ou 'maintenance' (manutenção) — são os nomes reais usados pelo sistema, NUNCA traduza para português no campo tipo. Para a regra de um lançamento fixo recorrente use criarOuAtualizarLancamentoFixo/excluirLancamentoFixo. Para cartões use criarOuAtualizarCartao/excluirCartao.
     REGRA DE OURO 8: Você tem memória desta conversa (até ${CONTEXT_LIMIT} mensagens). Não peça pro usuário repetir o que ele já disse aqui.
     REGRA DE OURO 9: ATENÇÃO — as categorias são separadas por tipo: configuracoes.categories.gasto e configuracoes.categories.receita. Sempre escolha a categoria da lista correspondente ao tipo do lançamento. Antes de chamar criarLancamento, verifique se tem TODOS os campos com certeza (date, type, category, amount, paidBy, e paymentMethod quando for gasto). Se faltar qualquer coisa ou houver ambiguidade, NÃO invente valores e NÃO chame criarLancamento — chame abrirFormularioLancamento informando em camposConhecidos (JSON) o que você já sabe.
     REGRA DE OURO 10: Se a mensagem começar com "[FORMULARIO_PREENCHIDO]" seguida de um JSON, isso é o resultado do formulário — já contém todos os campos. Chame criarLancamento diretamente com esses valores exatos, sem perguntar mais nada.
     REGRA DE OURO 11: Se o usuário enviar imagem (comprovante, nota, print) ou áudio, interprete o conteúdo para entender o que ele quer e siga as demais regras normalmente — inclusive abrindo o formulário se ainda faltar informação.
-    REGRA DE OURO 12 (PARCELAS): Lançamentos parcelados compartilham um mesmo 'groupId' e têm 'installmentLabel' (ex: "2/12"). Ao criar um gasto parcelado, use o campo installments em criarLancamento — as parcelas seguintes são geradas automaticamente nos meses subsequentes. Ao editar ou excluir um lançamento que faz parte de um grupo, SEMPRE pergunte antes ao usuário se ele quer aplicar só naquela parcela ou em todas as parcelas do grupo, e então use updateGroup (em editarLancamento) ou excluirGrupoTodo (em excluirLancamento) conforme a resposta.
-    REGRA DE OURO 13: Para transferir todos os lançamentos de um cartão para outra pessoa (mudança de titularidade), use transferirTitularidadeCartao. Isso afeta MUITOS lançamentos de uma vez — sempre confirme com o usuário antes de chamar, dizendo quantos lançamentos serão afetados.`;
+    REGRA DE OURO 12 (PARCELAS): Lançamentos parcelados compartilham um mesmo 'groupId' e têm 'installmentLabel' (ex: "2/12"). Ao criar um gasto parcelado, use o campo installments em criarLancamento. Ao editar ou excluir um lançamento que faz parte de um grupo, SEMPRE pergunte antes ao usuário se ele quer aplicar só naquela parcela ou em todas, e então use updateGroup (em editarLancamento) ou excluirGrupoTodo (em excluirLancamento) conforme a resposta.
+    REGRA DE OURO 13: Para transferir todos os lançamentos de um cartão para outra pessoa, use transferirTitularidadeCartao. Isso afeta MUITOS lançamentos de uma vez — sempre confirme com o usuário antes, dizendo quantos lançamentos serão afetados.`;
 
     const tools = [{
       functionDeclarations: [
@@ -216,13 +216,19 @@ export default async (req) => {
         },
         {
           name: "criarOuAtualizarRegistro",
-          description: "Cria/atualiza um registro do Life Hub: meta, viagem, assinatura, mercado ou manutencao.",
+          description: `Cria/atualiza um registro do Life Hub. O campo 'tipo' deve ser EXATAMENTE um destes valores em inglês (são os nomes reais do sistema, não traduza):
+- 'goal' (Meta do Casal): dados = {"title": string, "target": number, "saved": number}
+- 'trip' (Viagem/Roteiro): dados = {"title": string, "date": "AAAA-MM-01", "places": []}
+- 'subscription' (Assinatura): dados = {"title": string, "cost": number, "cycle": "Mensal" ou "Anual"}
+- 'shopping' (Lista de Mercado): dados = {"title": string, "date": "AAAA-MM-DD", "items": []}
+- 'maintenance' (Manutenção de veículo/casa): dados = {"vehicle": string, "service": string, "km": number, "cost": number, "date": "AAAA-MM-DD"}
+Ao atualizar (id preenchido), envie só os campos que mudaram.`,
           parameters: {
             type: "OBJECT",
             properties: {
               id: { type: "STRING", description: "Vazio para criar novo" },
-              tipo: { type: "STRING", description: "'meta', 'viagem', 'assinatura', 'mercado' ou 'manutencao'" },
-              dados: { type: "STRING", description: "JSON (texto) seguindo o formato de registros existentes do mesmo tipo." }
+              tipo: { type: "STRING", description: "'goal', 'trip', 'subscription', 'shopping' ou 'maintenance'" },
+              dados: { type: "STRING", description: "JSON (texto) com os campos do tipo escolhido, conforme descrito acima." }
             },
             required: ["tipo", "dados"]
           }
