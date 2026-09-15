@@ -146,7 +146,7 @@ export default async (req) => {
               description: { type: "STRING", description: "Descrição curta" },
               amount: { type: "NUMBER", description: "Valor de CADA parcela (não o total)" },
               paidBy: { type: "STRING", description: "ID de quem pagou (u1 ou u2)" },
-              paymentMethod: { type: "STRING", description: "dinheiro, pix, debito, outro, ou card_<id>" },
+              paymentMethod: { type: "STRING", description: "dinheiro, debito, pix, transferencia, ou card_<id>. Null se for receita." },
               installments: { type: "NUMBER", description: "Número de parcelas. Omita ou use 1 para lançamento único." },
               isThirdParty: { type: "BOOLEAN", description: "true se for dívida/gasto de terceiro" },
               thirdPartyName: { type: "STRING", description: "Nome do terceiro, se isThirdParty" },
@@ -334,7 +334,7 @@ Ao atualizar (id preenchido), envie só os campos que mudaram.`,
             categoriasGasto: cats.gasto || [],
             categoriasReceita: cats.receita || [],
             pessoas: settings.people || [],
-            formasPagamento: ['dinheiro', 'pix', 'debito', 'outro'],
+            formasPagamento: ['dinheiro', 'debito', 'pix', 'transferencia'],
             cartoes: (settings.cards || []).map(c => ({ id: c.id, name: c.name }))
           }
         };

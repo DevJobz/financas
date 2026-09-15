@@ -711,15 +711,17 @@ const App = (() => {
     el('#btn-cancel').addEventListener('click', closeModal);
     el('#modal-overlay').addEventListener('click', e => { if(e.target.id === 'modal-overlay') closeModal(); });
 
-    el('#form-goal').addEventListener('submit', async e => {
+        el('#form-goal').addEventListener('submit', async e => {
       e.preventDefault();
-      closeModal();
-      if(goal) {
+
+      if (goal) {
         const saved = parseFloat(el('#goal-saved').value.replace(',', '.')) || 0;
+        closeModal();
         await saveRecord({ ...goal, saved });
       } else {
         const title = el('#goal-title').value.trim();
         const target = parseFloat(el('#goal-target').value.replace(',', '.')) || 0;
+        closeModal();
         await saveRecord({ type: 'goal', title, target, saved: 0 });
       }
     });
@@ -2514,11 +2516,14 @@ const App = (() => {
       `<option value="${escapeHtml(p.id)}" ${known.paidBy === p.id ? 'selected' : ''}>${escapeHtml(p.name || p.id)}</option>`
     ).join('');
 
+    // Mesmos rótulos e mesma ordem do getPaymentMethods() real do app.js
+    const LABELS_FORMA = { dinheiro: 'Dinheiro/Conta', debito: 'Débito', pix: 'Pix', transferencia: 'Transferência' };
     const formasOpts = (opcoes.formasPagamento || []).map(f =>
-      `<option value="${f}" ${known.paymentMethod === f ? 'selected' : ''}>${f}</option>`
+      `<option value="${f}" ${known.paymentMethod === f ? 'selected' : ''}>${LABELS_FORMA[f] || f}</option>`
     ).join('');
+    // Cartões com o rótulo "Cartão: <nome>", igual ao real (inclusive nomes duplicados, se existirem)
     const cartoesOpts = (opcoes.cartoes || []).map(c =>
-      `<option value="card_${escapeHtml(c.id)}" ${known.paymentMethod === ('card_' + c.id) ? 'selected' : ''}>${escapeHtml(c.name)}</option>`
+      `<option value="card_${escapeHtml(c.id)}" ${known.paymentMethod === ('card_' + c.id) ? 'selected' : ''}>Cartão: ${escapeHtml(c.name)}</option>`
     ).join('');
 
     const tipoInicial = known.type === 'receita' ? 'receita' : 'gasto';
@@ -2556,9 +2561,23 @@ const App = (() => {
           <label>Quem pagou</label>
           <select class="clf-paidby">${pessoasOpts}</select>
         </div>
-        <div class="clf-row">
+        <div class="clf-row clf-row-payment">
           <label>Forma de pagamento</label>
           <select class="clf-paymentmethod">${formasOpts}${cartoesOpts}</select>
+        </div>
+        <div class="clf-row" style="flex-direction:row; align-items:center; gap:8px;">
+          <input type="checkbox" class="clf-third" id="${formId}-third" style="width:18px; height:18px;" />
+          <label for="${formId}-third" style="text-transform:none; font-size:13px; font-weight:normal;">É dívida ou reembolso de terceiros?</label>
+        </div>
+        <div class="clf-third-fields" style="display:none; flex-direction:column; gap:8px;">
+          <div class="clf-row">
+            <label>Nome do terceiro</label>
+            <input type="text" class="clf-third-name" placeholder="Ex: Irmão" />
+          </div>
+          <div class="clf-row">
+            <label>Data prevista p/ receber</label>
+            <input type="date" class="clf-third-date" />
+          </div>
         </div>
         <button type="button" class="clf-submit">Confirmar lançamento</button>
       </div>
@@ -2567,6 +2586,9 @@ const App = (() => {
 
     const typeSelect = el(`#${formId} .clf-type`);
     const categorySelect = el(`#${formId} .clf-category`);
+    const paymentRow = el(`#${formId} .clf-row-payment`);
+    const thirdCheckbox = el(`#${formId} .clf-third`);
+    const thirdFields = el(`#${formId} .clf-third-fields`);
 
     function fillCategories() {
       const lista = typeSelect.value === 'receita' ? catsReceita : catsGasto;
@@ -2574,10 +2596,25 @@ const App = (() => {
         `<option value="${escapeHtml(c)}" ${known.category === c ? 'selected' : ''}>${escapeHtml(c)}</option>`
       ).join('');
     }
+
+    // Espelha exatamente o comportamento do modal real: some/mostra a forma de pagamento conforme o tipo
+    function togglePaymentVisibility() {
+      paymentRow.style.display = typeSelect.value === 'gasto' ? 'flex' : 'none';
+    }
+
     fillCategories();
-    typeSelect.addEventListener('change', fillCategories);
+    togglePaymentVisibility();
+    typeSelect.addEventListener('change', () => {
+      fillCategories();
+      togglePaymentVisibility();
+    });
+
+    thirdCheckbox.addEventListener('change', (e) => {
+      thirdFields.style.display = e.target.checked ? 'flex' : 'none';
+    });
 
     el(`#${formId} .clf-submit`).addEventListener('click', async () => {
+      const isThird = thirdCheckbox.checked;
       const dataCompleta = {
         type: typeSelect.value,
         description: el(`#${formId} .clf-description`).value,
@@ -2586,7 +2623,10 @@ const App = (() => {
         date: el(`#${formId} .clf-date`).value,
         category: categorySelect.value,
         paidBy: el(`#${formId} .clf-paidby`).value,
-        paymentMethod: el(`#${formId} .clf-paymentmethod`).value
+        paymentMethod: typeSelect.value === 'gasto' ? el(`#${formId} .clf-paymentmethod`).value : null,
+        isThirdParty: isThird,
+        thirdPartyName: isThird ? el(`#${formId} .clf-third-name`).value.trim() : null,
+        thirdPartyDate: isThird ? el(`#${formId} .clf-third-date`).value : null
       };
       el(`#${formId}`).remove();
 
