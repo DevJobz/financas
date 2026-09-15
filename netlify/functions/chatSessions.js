@@ -46,7 +46,6 @@ export default async (req) => {
   }
 
   if (req.method === 'PATCH') {
-    // Renomear uma conversa manualmente (opcional, o front pode usar isso se quiser deixar editar o título)
     if (!id) return Response.json({ error: 'id é obrigatório' }, { status: 400, headers });
     const { title } = await req.json();
     const session = sessions.find(s => s.id === id);

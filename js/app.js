@@ -2278,6 +2278,10 @@ const App = (() => {
 
   let currentChatId = null;
   let allChatsCache = [];
+  let pendingAttachment = null; // { mimeType, data (base64), label }
+  let mediaRecorder = null;
+  let audioChunks = [];
+  let recordingTimeout = null;
 
   function escapeHtml(str) {
     const div = document.createElement('div');
@@ -2294,6 +2298,56 @@ const App = (() => {
     if (diffDays === 1) return 'Ontem';
     if (diffDays < 7) return d.toLocaleDateString('pt-BR', { weekday: 'short' });
     return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+  }
+
+  function blobToBase64(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result.split(',')[1]);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  function resizeImageToBase64(file, maxDim = 1024, quality = 0.75) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const reader = new FileReader();
+      reader.onload = (ev) => { img.src = ev.target.result; };
+      reader.onerror = reject;
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          const scale = maxDim / Math.max(width, height);
+          width = Math.round(width * scale);
+          height = Math.round(height * scale);
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+        const dataUrl = canvas.toDataURL('image/jpeg', quality);
+        resolve({ base64: dataUrl.split(',')[1], mimeType: 'image/jpeg' });
+      };
+      img.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function setPendingAttachment(att) {
+    pendingAttachment = att;
+    renderAttachmentPreview();
+  }
+  function clearPendingAttachment() {
+    pendingAttachment = null;
+    renderAttachmentPreview();
+  }
+  function renderAttachmentPreview() {
+    const box = el('#chat-attachment-preview');
+    if (!box) return;
+    if (!pendingAttachment) { box.style.display = 'none'; box.innerHTML = ''; return; }
+    box.style.display = 'flex';
+    box.innerHTML = `<span>${escapeHtml(pendingAttachment.label)}</span><i class="ti ti-x" id="btn-cancel-attachment"></i>`;
+    el('#btn-cancel-attachment').addEventListener('click', clearPendingAttachment);
   }
 
   function initChatUI() {
@@ -2324,7 +2378,11 @@ const App = (() => {
 
         <div class="chat-conversation-view" id="chat-conversation-view" style="display:none">
           <div class="chat-body" id="chat-messages"></div>
+          <div class="chat-attachment-preview" id="chat-attachment-preview" style="display:none"></div>
           <form class="chat-input-area" id="chat-form">
+            <input type="file" id="chat-image-input" accept="image/*" style="display:none" />
+            <i class="ti ti-paperclip chat-icon-btn" id="btn-attach-image" title="Anexar imagem"></i>
+            <i class="ti ti-microphone chat-icon-btn" id="btn-record-audio" title="Gravar áudio"></i>
             <input type="text" id="chat-input" placeholder="Pergunte algo ou registre um gasto..." autocomplete="off" />
             <button type="submit" id="chat-submit"><i class="ti ti-send"></i></button>
           </form>
@@ -2342,48 +2400,203 @@ const App = (() => {
     el('#btn-back-to-list').addEventListener('click', showChatList);
     el('#chat-search-input').addEventListener('input', (e) => renderChatList(e.target.value));
 
+    el('#btn-attach-image').addEventListener('click', () => el('#chat-image-input').click());
+    el('#chat-image-input').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        const { base64, mimeType } = await resizeImageToBase64(file);
+        setPendingAttachment({ mimeType, data: base64, label: '🖼️ Imagem anexada' });
+      } catch {
+        alert('Não foi possível processar essa imagem.');
+      }
+      e.target.value = '';
+    });
+
+    el('#btn-record-audio').addEventListener('click', async () => {
+      if (mediaRecorder && mediaRecorder.state === 'recording') {
+        mediaRecorder.stop();
+        return;
+      }
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        audioChunks = [];
+        mediaRecorder = new MediaRecorder(stream);
+        mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
+        mediaRecorder.onstop = async () => {
+          stream.getTracks().forEach(t => t.stop());
+          clearTimeout(recordingTimeout);
+          el('#btn-record-audio').classList.remove('recording');
+          const blob = new Blob(audioChunks, { type: 'audio/webm' });
+          const base64 = await blobToBase64(blob);
+          setPendingAttachment({ mimeType: 'audio/webm', data: base64, label: '🎤 Áudio gravado' });
+        };
+        mediaRecorder.start();
+        el('#btn-record-audio').classList.add('recording');
+        recordingTimeout = setTimeout(() => {
+          if (mediaRecorder && mediaRecorder.state === 'recording') mediaRecorder.stop();
+        }, 90000);
+      } catch {
+        alert('Não foi possível acessar o microfone. Verifique as permissões do navegador.');
+      }
+    });
+
     el('#chat-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const input = el('#chat-input');
       const msg = input.value.trim();
-      if (!msg) return;
+      if (!msg && !pendingAttachment) return;
 
-      appendMessage('user', escapeHtml(msg));
+      const attachmentToSend = pendingAttachment;
+      const displayHtml = attachmentToSend
+        ? `${escapeHtml(msg)} <span class="chat-attachment-chip">${attachmentToSend.label}</span>`
+        : escapeHtml(msg);
+
       input.value = '';
+      clearPendingAttachment();
       input.disabled = true;
 
-      const loadingId = appendMessage('ai', '<div class="typing-indicator"><span></span><span></span><span></span></div>');
+      await sendChatMessage(msg, displayHtml, attachmentToSend);
 
-      try {
-        const res = await fetch('/.netlify/functions/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${Auth.getToken()}` },
-          body: JSON.stringify({ message: msg, chatId: currentChatId })
-        });
-
-        if (!res.ok) {
-          let errMsg = 'Houve um erro de conexão com a IA.';
-          try { const errData = await res.json(); if (errData.error) errMsg = errData.error; } catch {}
-          throw new Error(errMsg);
-        }
-        const data = await res.json();
-
-        if (data.chatId) currentChatId = data.chatId;
-
-        updateMessage(loadingId, marked.parse(data.text || ''));
-
-        if (data.uiAction === 'RELOAD_DATA') {
-          await loadData();
-          renderView(true);
-        }
-
-      } catch (err) {
-        updateMessage(loadingId, escapeHtml(err.message || 'Houve um erro de conexão com a IA.'));
-      } finally {
-        input.disabled = false;
-        input.focus();
-      }
+      input.disabled = false;
+      input.focus();
     });
+  }
+
+  async function sendChatMessage(msgToSend, displayHtml, attachmentToSend) {
+    appendMessage('user', displayHtml);
+    const loadingId = appendMessage('ai', '<div class="typing-indicator"><span></span><span></span><span></span></div>');
+
+    try {
+      const body = { message: msgToSend, chatId: currentChatId };
+      if (attachmentToSend) body.attachment = { mimeType: attachmentToSend.mimeType, data: attachmentToSend.data };
+
+      const res = await fetch('/.netlify/functions/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${Auth.getToken()}` },
+        body: JSON.stringify(body)
+      });
+
+      if (!res.ok) {
+        let errMsg = 'Houve um erro de conexão com a IA.';
+        try { const errData = await res.json(); if (errData.error) errMsg = errData.error; } catch {}
+        throw new Error(errMsg);
+      }
+      const data = await res.json();
+      if (data.chatId) currentChatId = data.chatId;
+
+      updateMessage(loadingId, marked.parse(data.text || ''));
+
+      if (data.formulario) {
+        renderLancamentoForm(loadingId, data.formulario);
+      }
+
+      if (data.uiAction === 'RELOAD_DATA') {
+        await loadData();
+        renderView(true);
+      }
+    } catch (err) {
+      updateMessage(loadingId, escapeHtml(err.message || 'Houve um erro de conexão com a IA.'));
+    }
+  }
+
+  function renderLancamentoForm(bubbleId, formulario) {
+    const bubble = el(`#${bubbleId}`);
+    if (!bubble) return;
+    const known = formulario.camposConhecidos || {};
+    const opcoes = formulario.opcoes || {};
+    const formId = 'clf_' + Date.now();
+
+    const catsGasto = opcoes.categoriasGasto || [];
+    const catsReceita = opcoes.categoriasReceita || [];
+
+    const pessoasOpts = (opcoes.pessoas || []).map(p =>
+      `<option value="${escapeHtml(p.id)}" ${known.paidBy === p.id ? 'selected' : ''}>${escapeHtml(p.name || p.id)}</option>`
+    ).join('');
+
+    const formasOpts = (opcoes.formasPagamento || []).map(f =>
+      `<option value="${f}" ${known.paymentMethod === f ? 'selected' : ''}>${f}</option>`
+    ).join('');
+    const cartoesOpts = (opcoes.cartoes || []).map(c =>
+      `<option value="card_${escapeHtml(c.id)}" ${known.paymentMethod === ('card_' + c.id) ? 'selected' : ''}>${escapeHtml(c.name)}</option>`
+    ).join('');
+
+    const tipoInicial = known.type === 'receita' ? 'receita' : 'gasto';
+
+    const html = `
+      <div class="chat-lancamento-form" id="${formId}">
+        <div class="clf-row">
+          <label>Tipo</label>
+          <select class="clf-type">
+            <option value="gasto" ${tipoInicial === 'gasto' ? 'selected' : ''}>Gasto</option>
+            <option value="receita" ${tipoInicial === 'receita' ? 'selected' : ''}>Receita</option>
+          </select>
+        </div>
+        <div class="clf-row">
+          <label>Descrição</label>
+          <input type="text" class="clf-description" value="${escapeHtml(known.description || '')}" placeholder="ex: Uber, Mercado..." />
+        </div>
+        <div class="clf-row">
+          <label>Valor por parcela (R$)</label>
+          <input type="number" step="0.01" class="clf-amount" value="${known.amount != null ? known.amount : ''}" placeholder="0,00" />
+        </div>
+        <div class="clf-row">
+          <label>Parcelas</label>
+          <input type="number" min="1" step="1" class="clf-installments" value="${known.installments || 1}" />
+        </div>
+        <div class="clf-row">
+          <label>Data</label>
+          <input type="date" class="clf-date" value="${known.date || new Date().toISOString().slice(0, 10)}" />
+        </div>
+        <div class="clf-row">
+          <label>Categoria</label>
+          <select class="clf-category"></select>
+        </div>
+        <div class="clf-row">
+          <label>Quem pagou</label>
+          <select class="clf-paidby">${pessoasOpts}</select>
+        </div>
+        <div class="clf-row">
+          <label>Forma de pagamento</label>
+          <select class="clf-paymentmethod">${formasOpts}${cartoesOpts}</select>
+        </div>
+        <button type="button" class="clf-submit">Confirmar lançamento</button>
+      </div>
+    `;
+    bubble.insertAdjacentHTML('beforeend', html);
+
+    const typeSelect = el(`#${formId} .clf-type`);
+    const categorySelect = el(`#${formId} .clf-category`);
+
+    function fillCategories() {
+      const lista = typeSelect.value === 'receita' ? catsReceita : catsGasto;
+      categorySelect.innerHTML = lista.map(c =>
+        `<option value="${escapeHtml(c)}" ${known.category === c ? 'selected' : ''}>${escapeHtml(c)}</option>`
+      ).join('');
+    }
+    fillCategories();
+    typeSelect.addEventListener('change', fillCategories);
+
+    el(`#${formId} .clf-submit`).addEventListener('click', async () => {
+      const dataCompleta = {
+        type: typeSelect.value,
+        description: el(`#${formId} .clf-description`).value,
+        amount: parseFloat(el(`#${formId} .clf-amount`).value) || 0,
+        installments: parseInt(el(`#${formId} .clf-installments`).value) || 1,
+        date: el(`#${formId} .clf-date`).value,
+        category: categorySelect.value,
+        paidBy: el(`#${formId} .clf-paidby`).value,
+        paymentMethod: el(`#${formId} .clf-paymentmethod`).value
+      };
+      el(`#${formId}`).remove();
+
+      const parcelaTxt = dataCompleta.installments > 1 ? ` em ${dataCompleta.installments}x` : '';
+      const resumo = `Lançamento: ${dataCompleta.type} de R$ ${dataCompleta.amount.toFixed(2)}${parcelaTxt} em ${dataCompleta.category}`;
+      await sendChatMessage(`[FORMULARIO_PREENCHIDO] ${JSON.stringify(dataCompleta)}`, escapeHtml(resumo), null);
+    });
+
+    const container = el('#chat-messages');
+    container.scrollTop = container.scrollHeight;
   }
 
   async function fetchChatList() {
@@ -2399,6 +2612,7 @@ const App = (() => {
   }
 
   async function showChatList() {
+    clearPendingAttachment();
     el('#chat-header-title').innerHTML = '<i class="ti ti-sparkles"></i> Assistente Financeiro';
     el('#btn-back-to-list').style.display = 'none';
     el('#chat-list-view').style.display = 'flex';
@@ -2457,6 +2671,7 @@ const App = (() => {
   }
 
   async function openChat(id) {
+    clearPendingAttachment();
     currentChatId = id;
     el('#btn-back-to-list').style.display = 'inline-block';
     el('#chat-list-view').style.display = 'none';
@@ -2491,6 +2706,7 @@ const App = (() => {
   }
 
   function startNewChat() {
+    clearPendingAttachment();
     currentChatId = null;
     el('#chat-header-title').textContent = 'Nova conversa';
     el('#btn-back-to-list').style.display = 'inline-block';
@@ -2498,7 +2714,7 @@ const App = (() => {
     el('#chat-conversation-view').style.display = 'flex';
 
     el('#chat-messages').innerHTML = '';
-    appendMessage('ai', 'Olá! Posso te ajudar a registrar gastos, conferir balanços ou excluir lançamentos se algo deu errado. O que manda hoje?');
+    appendMessage('ai', 'Olá! Posso te ajudar a registrar gastos, conferir balanços ou excluir lançamentos se algo deu errado. Você também pode me mandar uma foto de comprovante ou um áudio. O que manda hoje?');
     el('#chat-input').focus();
   }
 

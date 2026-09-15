@@ -425,7 +425,7 @@ details[open] summary i { transform: rotate(180deg); transition: 0.2s; }
   }
 }
 
-/* Header com lado esquerdo (voltar + título) e ações à direita */
+/* Header: lado esquerdo (voltar + título) e ações à direita */
 .chat-header { justify-content: space-between; }
 .chat-header-left { display: flex; align-items: center; gap: 10px; overflow: hidden; }
 .chat-header-left span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -467,10 +467,10 @@ details[open] summary i { transform: rotate(180deg); transition: 0.2s; }
 .chat-list-item-delete { font-size: 15px; color: #b3413c; opacity: 0.6; cursor: pointer; }
 .chat-list-item-delete:hover { opacity: 1; }
 
-/* Tela de conversa (a que já existia, só formalizando o container) */
+/* Tela de conversa */
 .chat-conversation-view { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 
-/* Indicador de digitação (três bolinhas) */
+/* Indicador de digitação (três bolinhas estilo WhatsApp) */
 .typing-indicator { display: inline-flex; align-items: center; gap: 4px; padding: 4px 2px; }
 .typing-indicator span {
   width: 7px; height: 7px; border-radius: 50%; background: var(--teal-700);
@@ -491,3 +491,40 @@ details[open] summary i { transform: rotate(180deg); transition: 0.2s; }
 .chat-bubble.ai li { margin-bottom: 2px; }
 .chat-bubble.ai strong { color: var(--teal-900); }
 .chat-bubble.ai hr { border: none; border-top: 1px solid var(--line); margin: 10px 0; }
+
+/* Botões de anexo (clipe e microfone) */
+.chat-icon-btn { font-size: 20px; color: var(--muted, #888); cursor: pointer; flex-shrink: 0; }
+.chat-icon-btn:hover { color: var(--teal-700); }
+#btn-record-audio.recording { color: #b3413c; animation: mic-pulse 1s infinite; }
+@keyframes mic-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+/* Prévia do anexo pendente */
+.chat-attachment-preview {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 14px; background: var(--teal-100); font-size: 12px; color: var(--teal-900);
+}
+.chat-attachment-preview i { cursor: pointer; font-size: 15px; }
+
+/* Chip de anexo dentro da bolha do usuário */
+.chat-attachment-chip {
+  display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 999px;
+  background: rgba(255,255,255,0.4); font-size: 11px;
+}
+
+/* Formulário interativo de lançamento dentro da bolha da IA */
+.chat-lancamento-form {
+  margin-top: 10px; padding: 10px; border-radius: 10px;
+  background: var(--paper); border: 1px solid var(--line);
+  display: flex; flex-direction: column; gap: 8px;
+}
+.clf-row { display: flex; flex-direction: column; gap: 3px; }
+.clf-row label { font-size: 11px; color: var(--muted, #888); font-weight: 600; text-transform: uppercase; }
+.clf-row input, .clf-row select {
+  height: 34px; border-radius: 8px; border: 1px solid var(--line);
+  padding: 0 10px; font-size: 13px; background: var(--surface);
+}
+.chat-lancamento-form .clf-submit {
+  margin-top: 4px; height: 38px; border: none; border-radius: 999px;
+  background: var(--teal-700); color: #fff; font-weight: 600; cursor: pointer;
+}
+.chat-lancamento-form .clf-submit:hover { background: var(--teal-900); }
