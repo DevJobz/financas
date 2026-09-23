@@ -58,7 +58,7 @@ async function requestDeletionCode(entity, id, preview, extra = {}) {
     aguardandoConfirmacao: true,
     item: preview,
     codigoConfirmacao: codigo,
-    instrucao: 'NÃO diga que excluiu nada ainda. Mostre os detalhes do item e peça o código de 4 dígitos. Na confirmação, chame a mesma função de novo passando SOMENTE codigoConfirmacao.'
+    instrucao: `O sistema gerou o código de segurança ${codigo}. MOSTRE este código explicitamente ao usuário agora, no formato "Código: **${codigo}**". Peça que ele digite de volta no chat para confirmar. NÃO exclua nada ainda. Na confirmação, chame a mesma função de novo passando SOMENTE codigoConfirmacao.`
   };
 }
 async function resolveDeletionCode(entity, codigoConfirmacao) {
