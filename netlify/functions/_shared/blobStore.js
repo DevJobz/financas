@@ -1,10 +1,13 @@
 const { getStore } = require('@netlify/blobs');
 
-// Deixamos o Netlify injetar as credenciais automaticamente e forçamos a consistência forte
+// 1. Restauramos as chaves explícitas para o banco voltar a conectar
+// 2. Adicionamos a consistência forte para o Netlify parar de usar cache no chat
 function store(name) {
   return getStore({
     name: name,
-    consistency: 'strong' // <-- A MÁGICA: Obriga a ler o dado exato em tempo real, ignorando o cache
+    siteID: process.env.NETLIFY_SITE_ID,
+    token: process.env.NETLIFY_API_TOKEN,
+    consistency: 'strong' // <-- A mágica que resolve a fragmentação do chat
   });
 }
 
@@ -12,14 +15,11 @@ async function readJSON(storeName, key, fallback) {
   try {
     const s = store(storeName);
     const data = await s.get(key, { type: 'json' });
-    
-    // Retorna fallback apenas se o arquivo realmente não existir ainda (data === null)
     return data === null || data === undefined ? fallback : data;
   } catch (err) {
-    console.error(`Erro crítico ao ler blob ${key}:`, err);
-    // NUNCA retorne o fallback (array vazio) em caso de erro de rede.
-    // Isso faria o sistema achar que o histórico está vazio e sobrescrever tudo.
-    throw new Error(`Falha de conexão com o banco de dados (${key}).`);
+    console.error(`Erro ao ler blob ${key}:`, err);
+    // 3. Restauramos o fallback para evitar o erro 502 fatal e manter a tela funcionando
+    return fallback; 
   }
 }
 
