@@ -8,6 +8,11 @@ const STORE = 'financas';
 const CONFIRMATION_TTL_MS = 5 * 60 * 1000;
 const CONTEXT_LIMIT = parseInt(process.env.CHAT_CONTEXT_LIMIT || '100', 10);
 
+// Campos que podem ser propagados em cascata para todas as parcelas de um grupo.
+// Igual ao que o transactions.js real permite no updateGroup — NUNCA inclui date nem status,
+// porque cada parcela tem sua própria data de vencimento e seu próprio status de pagamento.
+const GROUP_CASCADE_FIELDS = ['category', 'description', 'amount', 'paidBy', 'paymentMethod', 'isThirdParty', 'thirdPartyName', 'thirdPartyDate'];
+
 async function appendAudit(user, action, entity, entityId, before, after) {
   const log = await readJSON(STORE, 'audit.json', []);
   log.unshift({
@@ -103,13 +108,14 @@ export default async (req) => {
     REGRA DE OURO 4: Seja claro, analítico, verdadeiro e amigável. Valores sempre em R$.
     REGRA DE OURO 5: Use SEMPRE resumoMensal[chave] para saldo/receitas/despesas de um mês. NUNCA some 'transacoes' brutas por conta própria.
     REGRA DE OURO 6: Para editar um lançamento (inclusive marcar como pago/recebido ou reabrir), use editarLancamento com o id e só os campos que mudaram — inclusive status ('aberto' ou 'ok'). Para marcar VÁRIOS de uma vez, use atualizarStatusEmMassa.
-    REGRA DE OURO 7: Para o Life Hub, use criarOuAtualizarRegistro/excluirRegistro com o 'tipo' EXATO: 'goal' (meta), 'trip' (viagem), 'subscription' (assinatura), 'shopping' (lista de mercado) ou 'maintenance' (manutenção) — são os nomes reais usados pelo sistema, NUNCA traduza para português no campo tipo. Para a regra de um lançamento fixo recorrente use criarOuAtualizarLancamentoFixo/excluirLancamentoFixo. Para cartões use criarOuAtualizarCartao/excluirCartao.
+    REGRA DE OURO 7: Para o Life Hub, use criarOuAtualizarRegistro/excluirRegistro com o 'tipo' EXATO: 'goal' (meta), 'trip' (viagem), 'subscription' (assinatura), 'shopping' (lista de mercado) ou 'maintenance' (manutenção) — nomes reais do sistema, nunca traduza. Para a regra de um lançamento fixo recorrente use criarOuAtualizarLancamentoFixo/excluirLancamentoFixo. Para cartões use criarOuAtualizarCartao/excluirCartao.
     REGRA DE OURO 8: Você tem memória desta conversa (até ${CONTEXT_LIMIT} mensagens). Não peça pro usuário repetir o que ele já disse aqui.
-    REGRA DE OURO 9: ATENÇÃO — as categorias são separadas por tipo: configuracoes.categories.gasto e configuracoes.categories.receita. Sempre escolha a categoria da lista correspondente ao tipo do lançamento. Antes de chamar criarLancamento, verifique se tem TODOS os campos com certeza (date, type, category, amount, paidBy, e paymentMethod quando for gasto). Se faltar qualquer coisa ou houver ambiguidade, NÃO invente valores e NÃO chame criarLancamento — chame abrirFormularioLancamento informando em camposConhecidos (JSON) o que você já sabe.
+    REGRA DE OURO 9: As categorias são separadas por tipo: configuracoes.categories.gasto e configuracoes.categories.receita. Antes de chamar criarLancamento, verifique se tem TODOS os campos com certeza (date, type, category, amount, paidBy, e paymentMethod quando for gasto). Se faltar qualquer coisa ou houver ambiguidade, NÃO invente valores e NÃO chame criarLancamento — chame abrirFormularioLancamento informando em camposConhecidos (JSON) o que você já sabe.
     REGRA DE OURO 10: Se a mensagem começar com "[FORMULARIO_PREENCHIDO]" seguida de um JSON, isso é o resultado do formulário — já contém todos os campos. Chame criarLancamento diretamente com esses valores exatos, sem perguntar mais nada.
-    REGRA DE OURO 11: Se o usuário enviar imagem (comprovante, nota, print) ou áudio, interprete o conteúdo para entender o que ele quer e siga as demais regras normalmente — inclusive abrindo o formulário se ainda faltar informação.
-    REGRA DE OURO 12 (PARCELAS): Lançamentos parcelados compartilham um mesmo 'groupId' e têm 'installmentLabel' (ex: "2/12"). Ao criar um gasto parcelado, use o campo installments em criarLancamento. Ao editar ou excluir um lançamento que faz parte de um grupo, SEMPRE pergunte antes ao usuário se ele quer aplicar só naquela parcela ou em todas, e então use updateGroup (em editarLancamento) ou excluirGrupoTodo (em excluirLancamento) conforme a resposta.
-    REGRA DE OURO 13: Para transferir todos os lançamentos de um cartão para outra pessoa, use transferirTitularidadeCartao. Isso afeta MUITOS lançamentos de uma vez — sempre confirme com o usuário antes, dizendo quantos lançamentos serão afetados.`;
+    REGRA DE OURO 11: Se o usuário enviar imagem (comprovante, nota, print, foto de lista escrita à mão) ou áudio, interprete o conteúdo para entender o que ele quer e siga as demais regras normalmente.
+    REGRA DE OURO 12 (PARCELAS): Lançamentos parcelados compartilham um mesmo 'groupId' e têm 'installmentLabel' (ex: "2/12"). Ao criar um gasto parcelado, use installments em criarLancamento. Ao editar/excluir um lançamento de um grupo, SEMPRE pergunte antes se é só aquela parcela ou todas, e use updateGroup (editarLancamento) ou excluirGrupoTodo (excluirLancamento) conforme a resposta. Ao usar updateGroup, saiba que data e status NUNCA são propagados às outras parcelas — só categoria, descrição, valor, responsável, forma de pagamento e dados de terceiro.
+    REGRA DE OURO 13: Para transferir todos os lançamentos de um cartão para outra pessoa, use transferirTitularidadeCartao. Confirme com o usuário antes, dizendo quantos lançamentos serão afetados.
+    REGRA DE OURO 14 (LISTAS DE MERCADO): Ao criar uma lista de mercado (tipo 'shopping'), o campo 'title' é o nome do mercado/lista (ex: "Assaí Setembro", "Primeira Compra - Casa Nova") — SEMPRE pergunte esse nome ao usuário se ele não disser, antes de salvar. Se o usuário mandar uma FOTO de uma lista escrita à mão, extraia os nomes dos itens da imagem, pergunte o nome do mercado/lista se não foi dito, mostre a lista extraída pro usuário confirmar, e só então chame criarOuAtualizarRegistro. Se o usuário pedir uma lista sem dizer os itens (ex: "cria uma lista de compras pra gente"), você pode sugerir um rascunho de itens comuns, mas MOSTRE o rascunho e PERGUNTE se pode salvar antes de realmente chamar criarOuAtualizarRegistro — nunca salve uma lista grande e inventada sem confirmação do usuário.`;
 
     const tools = [{
       functionDeclarations: [
@@ -157,7 +163,7 @@ export default async (req) => {
         },
         {
           name: "editarLancamento",
-          description: "Edita um lançamento. Use status para 'ok' (pago/recebido) ou 'aberto' (reabrir). Use updateGroup=true para aplicar a mudança em TODAS as parcelas do mesmo grupo.",
+          description: "Edita um lançamento. Use status para 'ok' (pago/recebido) ou 'aberto' (reabrir). Use updateGroup=true para aplicar categoria/descrição/valor/responsável/forma de pagamento/terceiro em TODAS as parcelas do mesmo grupo (data e status nunca são propagados).",
           parameters: {
             type: "OBJECT",
             properties: {
@@ -173,7 +179,7 @@ export default async (req) => {
               isThirdParty: { type: "BOOLEAN", description: "opcional" },
               thirdPartyName: { type: "STRING", description: "opcional" },
               thirdPartyDate: { type: "STRING", description: "opcional" },
-              updateGroup: { type: "BOOLEAN", description: "true aplica em todas as parcelas do grupo. Só use depois de perguntar ao usuário." }
+              updateGroup: { type: "BOOLEAN", description: "true aplica em todas as parcelas do grupo (exceto data/status). Só use depois de perguntar ao usuário." }
             },
             required: ["id"]
           }
@@ -216,13 +222,19 @@ export default async (req) => {
         },
         {
           name: "criarOuAtualizarRegistro",
-          description: `Cria/atualiza um registro do Life Hub. O campo 'tipo' deve ser EXATAMENTE um destes valores em inglês (são os nomes reais do sistema, não traduza):
+          description: `Cria/atualiza um registro do Life Hub. O campo 'tipo' deve ser EXATAMENTE um destes valores em inglês (nomes reais do sistema, não traduza):
+
 - 'goal' (Meta do Casal): dados = {"title": string, "target": number, "saved": number}
-- 'trip' (Viagem/Roteiro): dados = {"title": string, "date": "AAAA-MM-01", "places": []}
+
+- 'trip' (Viagem/Roteiro): dados = {"title": string, "date": "AAAA-MM-01", "places": [{"id": "string único, ex: p1", "name": string, "link": string ou "", "estCost": number}]}. Para uma viagem nova sem locais ainda, use "places": [].
+
 - 'subscription' (Assinatura): dados = {"title": string, "cost": number, "cycle": "Mensal" ou "Anual"}
-- 'shopping' (Lista de Mercado): dados = {"title": string, "date": "AAAA-MM-DD", "items": []}
+
+- 'shopping' (Lista de Mercado): dados = {"title": string (nome do mercado/lista, ex: "Assaí Setembro"), "date": "AAAA-MM-DD", "items": [{"id": "string único, ex: i1", "name": string, "qty": number, "price": 0, "checked": false}]}. Cada item precisa ter TODOS esses 5 campos, com "price": 0 e "checked": false por padrão (o casal preenche o preço depois, no mercado).
+
 - 'maintenance' (Manutenção de veículo/casa): dados = {"vehicle": string, "service": string, "km": number, "cost": number, "date": "AAAA-MM-DD"}
-Ao atualizar (id preenchido), envie só os campos que mudaram.`,
+
+Ao atualizar (id preenchido), envie só os campos que mudaram. Para adicionar um item a uma lista de mercado existente ou um local a uma viagem existente, releia o registro via consultarDados, pegue o array atual (items ou places), acrescente o novo item/local mantendo os já existentes, e mande o array completo de volta.`,
           parameters: {
             type: "OBJECT",
             properties: {
@@ -394,10 +406,15 @@ Ao atualizar (id preenchido), envie só os campos que mudaram.`,
           const targetGroupId = list[idx].groupId;
 
           if (updateGroup && targetGroupId) {
+            // Só propaga os campos seguros — igual ao transactions.js real (nunca data nem status)
+            const safeChanges = {};
+            for (const key of GROUP_CASCADE_FIELDS) {
+              if (changes[key] !== undefined) safeChanges[key] = changes[key];
+            }
             let count = 0;
             list.forEach((item, i) => {
               if (item.groupId === targetGroupId) {
-                list[i] = { ...item, ...changes, updatedAt: now, updatedBy: 'IA Assistente' };
+                list[i] = { ...item, ...safeChanges, updatedAt: now, updatedBy: 'IA Assistente' };
                 count++;
               }
             });
