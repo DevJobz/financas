@@ -1,11 +1,10 @@
 const { getStore } = require('@netlify/blobs');
 
-// Agora passamos as chaves explicitamente para não depender do ambiente automático
+// Deixamos o Netlify injetar as credenciais automaticamente e forçamos a consistência forte
 function store(name) {
   return getStore({
     name: name,
-    siteID: process.env.NETLIFY_SITE_ID,
-    token: process.env.NETLIFY_API_TOKEN
+    consistency: 'strong' // <-- A MÁGICA: Obriga a ler o dado exato em tempo real, ignorando o cache
   });
 }
 
@@ -13,10 +12,14 @@ async function readJSON(storeName, key, fallback) {
   try {
     const s = store(storeName);
     const data = await s.get(key, { type: 'json' });
+    
+    // Retorna fallback apenas se o arquivo realmente não existir ainda (data === null)
     return data === null || data === undefined ? fallback : data;
   } catch (err) {
-    console.error(`Erro ao ler blob ${key}:`, err);
-    return fallback; // Impede o erro 502 devolvendo o fallback seguro
+    console.error(`Erro crítico ao ler blob ${key}:`, err);
+    // NUNCA retorne o fallback (array vazio) em caso de erro de rede.
+    // Isso faria o sistema achar que o histórico está vazio e sobrescrever tudo.
+    throw new Error(`Falha de conexão com o banco de dados (${key}).`);
   }
 }
 
