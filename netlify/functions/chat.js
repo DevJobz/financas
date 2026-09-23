@@ -33,7 +33,7 @@ async function saveSessions(sessions) {
 async function generateTitle(ai, userMsg, aiMsg) {
   try {
     const r = await ai.models.generateContent({
-      model: 'gemini-3.6-flash',
+      model: 'gemini-2.5-flash',
       contents: `Gere um título curto (3 a 6 palavras, sem aspas, sem ponto final) para esta conversa de um app financeiro de casal, baseado na troca abaixo. Responda APENAS com o título.\n\nUsuário: ${userMsg}\nAssistente: ${String(aiMsg || '').slice(0, 300)}`
     });
     const title = (r.text || '').trim().replace(/^["'“”]+|["'“”]+$/g, '').replace(/\.$/, '');
@@ -297,7 +297,7 @@ Ao atualizar (id preenchido), envie só os campos que mudaram. Para adicionar um
     }];
 
     const chat = ai.chats.create({
-      model: "gemini-3.6-flash",
+      model: "gemini-2.5-flash",
       config: { systemInstruction, tools },
       history: historyForGemini
     });
@@ -310,10 +310,74 @@ Ao atualizar (id preenchido), envie só os campos que mudaram. Para adicionar um
       ];
     }
 
-    let result = await chat.sendMessage({ message: messageToSend });
-    let functionCall = result.functionCalls && result.functionCalls[0];
     let uiAction = null;
     let pendingForm = null;
+
+    // --- INÍCIO DA INTERCEPTAÇÃO DETERMINÍSTICA DE EXCLUSÃO ---
+    const codeMatch = typeof message === 'string' ? message.match(/\b\d{4}\b/) : null;
+    if (codeMatch) {
+      const pendingDeletions = await getPendingDeletions();
+      const matchedPending = pendingDeletions.find(p => p.codigo === codeMatch[0]);
+
+      if (matchedPending) {
+        if (matchedPending.entity === 'transaction') {
+          const list = await readJSON(STORE, 'transactions.json', []);
+          const idx = list.findIndex(t => t.id === matchedPending.id);
+          if (idx > -1) {
+            const before = list[idx];
+            if (matchedPending.excluirGrupoTodo && before.groupId) {
+              const restante = list.filter(t => t.groupId !== before.groupId);
+              await writeJSON(STORE, 'transactions.json', restante);
+              await appendAudit(user, 'delete_group', 'transaction_group', before.groupId, before, null);
+            } else {
+              list.splice(idx, 1);
+              await writeJSON(STORE, 'transactions.json', list);
+              await appendAudit(user, 'delete', 'transaction', matchedPending.id, before, null);
+            }
+          }
+        } else if (matchedPending.entity === 'record') {
+          const list = await readJSON(STORE, 'records.json', []);
+          const idx = list.findIndex(r => r.id === matchedPending.id);
+          if (idx > -1) {
+            const before = list[idx];
+            list.splice(idx, 1);
+            await writeJSON(STORE, 'records.json', list);
+            await appendAudit(user, 'delete', 'record', matchedPending.id, before, null);
+          }
+        } else if (matchedPending.entity === 'fixedEntry') {
+          const settings = await readJSON(STORE, 'settings.json', {});
+          settings.fixedEntries = settings.fixedEntries || [];
+          const idx = settings.fixedEntries.findIndex(f => f.id === matchedPending.id);
+          if (idx > -1) {
+            const before = settings.fixedEntries[idx];
+            settings.fixedEntries.splice(idx, 1);
+            await writeJSON(STORE, 'settings.json', settings);
+            await appendAudit(user, 'delete', 'fixedEntry', matchedPending.id, before, null);
+          }
+        } else if (matchedPending.entity === 'card') {
+          const settings = await readJSON(STORE, 'settings.json', {});
+          settings.cards = settings.cards || [];
+          const idx = settings.cards.findIndex(c => c.id === matchedPending.id);
+          if (idx > -1) {
+            const before = settings.cards[idx];
+            settings.cards.splice(idx, 1);
+            await writeJSON(STORE, 'settings.json', settings);
+            await appendAudit(user, 'delete', 'card', matchedPending.id, before, null);
+          }
+        }
+
+        // Invalida o código pendente
+        await writeJSON(STORE, 'pending_deletions.json', pendingDeletions.filter(p => p !== matchedPending));
+
+        // Substitui a mensagem do usuário por um comando interno para a IA
+        messageToSend = `[SISTEMA] O usuário forneceu o código correto (${codeMatch[0]}). O item já foi excluído do banco de dados COM SUCESSO pelo sistema via API. Não chame mais a ferramenta de exclusão. Apenas avise amigavelmente que o item foi apagado.`;
+        uiAction = 'RELOAD_DATA';
+      }
+    }
+    // --- FIM DA INTERCEPTAÇÃO ---
+
+    let result = await chat.sendMessage({ message: messageToSend });
+    let functionCall = result.functionCalls && result.functionCalls[0];
 
     while (functionCall) {
       const args = functionCall.args || {};
