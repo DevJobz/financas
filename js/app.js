@@ -2505,8 +2505,13 @@ function setCurrentChatId(id) {
 
       updateMessage(loadingId, marked.parse(data.text || ''));
 
+      // É exatamente aqui que você atualiza a checagem:
       if (data.formulario) {
-        renderLancamentoForm(loadingId, data.formulario);
+        if (data.formulario.tipo === 'lancamento') {
+          renderLancamentoForm(loadingId, data.formulario);
+        } else {
+          renderLifeHubForm(loadingId, data.formulario);
+        }
       }
 
       if (data.uiAction === 'RELOAD_DATA') {
@@ -2653,6 +2658,127 @@ function setCurrentChatId(id) {
 
     const container = el('#chat-messages');
     container.scrollTop = container.scrollHeight;
+  }
+
+  // Adicione esta função no app.js logo após a função renderLancamentoForm existente.
+  // Também atualize sendChatMessage para chamar renderLifeHubForm quando o tipo não for 'lancamento'.
+
+  function renderLifeHubForm(bubbleId, formulario) {
+    const bubble = el(`#${bubbleId}`);
+    if (!bubble) return;
+    const tipo = formulario.tipo;
+    const known = formulario.camposConhecidos || {};
+    const opcoes = formulario.opcoes || {};
+    const formId = 'clhf_' + Date.now();
+
+    const pessoasOpts = (opcoes.pessoas || []).map(p =>
+      `<option value="${escapeHtml(p.id)}" ${known.paidBy === p.id ? 'selected' : ''}>${escapeHtml(p.name || p.id)}</option>`
+    ).join('');
+
+    let fieldsHtml = '';
+    let titleLabel = '';
+
+    if (tipo === 'goal') {
+      titleLabel = 'Nova Meta do Casal';
+      fieldsHtml = `
+        <div class="clf-row"><label>O que querem alcançar?</label><input type="text" class="clhf-title" value="${escapeHtml(known.title || '')}" placeholder="Ex: Viagem para o litoral" /></div>
+        <div class="clf-row"><label>Valor Alvo (R$)</label><input type="number" step="0.01" class="clhf-target" value="${known.target || ''}" placeholder="5000" /></div>
+        <div class="clf-row"><label>Já guardado (R$)</label><input type="number" step="0.01" class="clhf-saved" value="${known.saved || 0}" /></div>
+      `;
+    } else if (tipo === 'trip') {
+      titleLabel = 'Nova Viagem / Roteiro';
+      fieldsHtml = `
+        <div class="clf-row"><label>Nome da viagem</label><input type="text" class="clhf-title" value="${escapeHtml(known.title || '')}" placeholder="Ex: Férias Nordeste" /></div>
+        <div class="clf-row"><label>Mês previsto</label><input type="month" class="clhf-date" value="${known.date ? known.date.slice(0,7) : ''}" /></div>
+      `;
+    } else if (tipo === 'subscription') {
+      titleLabel = 'Nova Assinatura';
+      fieldsHtml = `
+        <div class="clf-row"><label>Nome do serviço</label><input type="text" class="clhf-title" value="${escapeHtml(known.title || '')}" placeholder="Ex: Netflix, Spotify" /></div>
+        <div class="clf-row"><label>Valor (R$)</label><input type="number" step="0.01" class="clhf-cost" value="${known.cost || ''}" placeholder="29,90" /></div>
+        <div class="clf-row"><label>Ciclo</label>
+          <select class="clhf-cycle">
+            <option value="Mensal" ${known.cycle === 'Mensal' ? 'selected' : ''}>Mensal</option>
+            <option value="Anual" ${known.cycle === 'Anual' ? 'selected' : ''}>Anual</option>
+          </select>
+        </div>
+      `;
+    } else if (tipo === 'shopping') {
+      titleLabel = 'Nova Lista de Mercado';
+      fieldsHtml = `
+        <div class="clf-row"><label>Nome do mercado / lista</label><input type="text" class="clhf-title" value="${escapeHtml(known.title || '')}" placeholder="Ex: Assaí Outubro" /></div>
+      `;
+    } else if (tipo === 'maintenance') {
+      titleLabel = 'Novo Serviço / Manutenção';
+      fieldsHtml = `
+        <div class="clf-row"><label>Veículo / Ativo</label><input type="text" class="clhf-vehicle" value="${escapeHtml(known.vehicle || '')}" placeholder="Ex: Moto, Carro" /></div>
+        <div class="clf-row"><label>Serviço realizado</label><input type="text" class="clhf-service" value="${escapeHtml(known.service || '')}" placeholder="Ex: Troca de óleo" /></div>
+        <div class="clf-row"><label>Quilometragem (KM)</label><input type="number" class="clhf-km" value="${known.km || ''}" /></div>
+        <div class="clf-row"><label>Custo (R$)</label><input type="number" step="0.01" class="clhf-cost" value="${known.cost || ''}" /></div>
+        <div class="clf-row"><label>Data</label><input type="date" class="clhf-date" value="${known.date || new Date().toISOString().slice(0,10)}" /></div>
+      `;
+    }
+
+    const html = `
+      <div class="chat-lancamento-form" id="${formId}">
+        <div style="font-size:12px; font-weight:700; color:var(--teal-700); text-transform:uppercase; margin-bottom:4px;">${titleLabel}</div>
+        ${fieldsHtml}
+        <button type="button" class="clf-submit">Confirmar</button>
+      </div>
+    `;
+    bubble.insertAdjacentHTML('beforeend', html);
+
+    el(`#${formId} .clf-submit`).addEventListener('click', async () => {
+      let dados = {};
+      const today = new Date().toISOString().slice(0, 10);
+
+      if (tipo === 'goal') {
+        dados = {
+          title: el(`#${formId} .clhf-title`).value.trim(),
+          target: parseFloat(el(`#${formId} .clhf-target`).value) || 0,
+          saved: parseFloat(el(`#${formId} .clhf-saved`).value) || 0
+        };
+      } else if (tipo === 'trip') {
+        const monthVal = el(`#${formId} .clhf-date`).value;
+        dados = {
+          title: el(`#${formId} .clhf-title`).value.trim(),
+          date: monthVal ? `${monthVal}-01` : today,
+          places: []
+        };
+      } else if (tipo === 'subscription') {
+        dados = {
+          title: el(`#${formId} .clhf-title`).value.trim(),
+          cost: parseFloat(el(`#${formId} .clhf-cost`).value) || 0,
+          cycle: el(`#${formId} .clhf-cycle`).value
+        };
+      } else if (tipo === 'shopping') {
+        dados = {
+          title: el(`#${formId} .clhf-title`).value.trim(),
+          date: today,
+          items: []
+        };
+      } else if (tipo === 'maintenance') {
+        dados = {
+          vehicle: el(`#${formId} .clhf-vehicle`).value.trim(),
+          service: el(`#${formId} .clhf-service`).value.trim(),
+          km: parseInt(el(`#${formId} .clhf-km`).value) || 0,
+          cost: parseFloat(el(`#${formId} .clhf-cost`).value) || 0,
+          date: el(`#${formId} .clhf-date`).value || today
+        };
+      }
+
+      el(`#${formId}`).remove();
+
+      const tipoLabels = { goal: 'Meta', trip: 'Viagem', subscription: 'Assinatura', shopping: 'Lista de Mercado', maintenance: 'Manutenção' };
+      const resumo = `Criar ${tipoLabels[tipo] || tipo}: ${dados.title || dados.vehicle || ''}`;
+      await sendChatMessage(
+        `[FORMULARIO_LIFEHUB_PREENCHIDO] tipo:${tipo} dados:${JSON.stringify(dados)}`,
+        escapeHtml(resumo),
+        null
+      );
+    });
+
+    el('#chat-messages').scrollTop = el('#chat-messages').scrollHeight;
   }
 
   async function fetchChatList() {
