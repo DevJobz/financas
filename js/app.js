@@ -2278,7 +2278,13 @@ const App = (() => {
 
  // ---------- INTEGRAÇÃO DE IA (GEMINI) ----------
 
-  let currentChatId = null;
+  let currentChatId = sessionStorage.getItem('activeChatId') || null;
+
+function setCurrentChatId(id) {
+  currentChatId = id;
+  if (id) sessionStorage.setItem('activeChatId', id);
+  else sessionStorage.removeItem('activeChatId');
+}
   let allChatsCache = [];
   let pendingAttachment = null; // { mimeType, data (base64), label }
   let mediaRecorder = null;
@@ -2495,7 +2501,7 @@ const App = (() => {
         throw new Error(errMsg);
       }
       const data = await res.json();
-      if (data.chatId) currentChatId = data.chatId;
+      if (data.chatId) setCurrentChatId(data.chatId);
 
       updateMessage(loadingId, marked.parse(data.text || ''));
 
@@ -2667,7 +2673,7 @@ const App = (() => {
     el('#btn-back-to-list').style.display = 'none';
     el('#chat-list-view').style.display = 'flex';
     el('#chat-conversation-view').style.display = 'none';
-    currentChatId = null;
+    setCurrentChatId(null);
 
     el('#chat-list').innerHTML = '<div class="chat-list-empty">Carregando...</div>';
     allChatsCache = await fetchChatList();
@@ -2722,7 +2728,7 @@ const App = (() => {
 
   async function openChat(id) {
     clearPendingAttachment();
-    currentChatId = id;
+    setCurrentChatId(id);
     el('#btn-back-to-list').style.display = 'inline-block';
     el('#chat-list-view').style.display = 'none';
     el('#chat-conversation-view').style.display = 'flex';
@@ -2757,7 +2763,7 @@ const App = (() => {
 
   function startNewChat() {
     clearPendingAttachment();
-    currentChatId = null;
+    setCurrentChatId(null);
     el('#chat-header-title').textContent = 'Nova conversa';
     el('#btn-back-to-list').style.display = 'inline-block';
     el('#chat-list-view').style.display = 'none';
