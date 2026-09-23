@@ -8,9 +8,7 @@ const STORE = 'financas';
 const CONFIRMATION_TTL_MS = 30 * 60 * 1000;
 const CONTEXT_LIMIT = parseInt(process.env.CHAT_CONTEXT_LIMIT || '100', 10);
 
-// Campos que podem ser propagados em cascata para todas as parcelas de um grupo.
-// Igual ao que o transactions.js real permite no updateGroup — NUNCA inclui date nem status,
-// porque cada parcela tem sua própria data de vencimento e seu próprio status de pagamento.
+// Campos propagáveis em cascade de parcelas — nunca inclui date nem status
 const GROUP_CASCADE_FIELDS = ['category', 'description', 'amount', 'paidBy', 'paymentMethod', 'isThirdParty', 'thirdPartyName', 'thirdPartyDate'];
 
 async function appendAudit(user, action, entity, entityId, before, after) {
@@ -22,7 +20,6 @@ async function appendAudit(user, action, entity, entityId, before, after) {
   await writeJSON(STORE, 'audit.json', log.slice(0, 1000));
 }
 
-// ---------- SESSÕES DE CHAT ----------
 async function getSessions() {
   return await readJSON(STORE, 'chat_sessions.json', []);
 }
@@ -36,14 +33,14 @@ async function generateTitle(ai, userMsg, aiMsg) {
       model: 'gemini-2.5-flash-lite',
       contents: `Gere um título curto (3 a 6 palavras, sem aspas, sem ponto final) para esta conversa de um app financeiro de casal, baseado na troca abaixo. Responda APENAS com o título.\n\nUsuário: ${userMsg}\nAssistente: ${String(aiMsg || '').slice(0, 300)}`
     });
-    const title = (r.text || '').trim().replace(/^["'“”]+|["'“”]+$/g, '').replace(/\.$/, '');
+    const title = (r.text || '').trim().replace(/^["'""]+|["'""]+$/g, '').replace(/\.$/, '');
     return title || (userMsg || 'Anexo enviado').slice(0, 40);
   } catch {
     return (userMsg || 'Anexo enviado').slice(0, 40);
   }
 }
 
-// ---------- TRAVA REAL DE CONFIRMAÇÃO PARA EXCLUSÕES ----------
+// ---------- TRAVA DE EXCLUSÃO ----------
 async function getPendingDeletions() {
   const list = await readJSON(STORE, 'pending_deletions.json', []);
   return list.filter(p => p.expiresAt > Date.now());
@@ -58,7 +55,7 @@ async function requestDeletionCode(entity, id, preview, extra = {}) {
     aguardandoConfirmacao: true,
     item: preview,
     codigoConfirmacao: codigo,
-    instrucao: `O sistema gerou o código de segurança ${codigo}. MOSTRE este código explicitamente ao usuário agora, no formato "Código: **${codigo}**". Peça que ele digite de volta no chat para confirmar. NÃO exclua nada ainda. Na confirmação, chame a mesma função de novo passando SOMENTE codigoConfirmacao.`
+    instrucao: `Código de segurança gerado: **${codigo}**. EXIBA este código claramente ao usuário e peça que ele o digite no chat para confirmar a exclusão. NÃO exclua nada ainda. Aguarde o código.`
   };
 }
 async function resolveDeletionCode(entity, codigoConfirmacao) {
@@ -94,34 +91,39 @@ export default async (req) => {
     }
 
     const historyForGemini = session.messages
-  .slice(-CONTEXT_LIMIT)
-  .filter(m => m.text !== null && m.text !== undefined && String(m.text).trim() !== '')
-  .map(m => ({ role: m.role, parts: [{ text: m.text }] }));
+      .slice(-CONTEXT_LIMIT)
+      .filter(m => m.text !== null && m.text !== undefined && String(m.text).trim() !== '')
+      .map(m => ({ role: m.role, parts: [{ text: m.text }] }));
 
     const u1 = process.env.USER1_NAME || 'Pessoa 1';
     const u2 = process.env.USER2_NAME || 'Pessoa 2';
 
     const systemInstruction = `Você é o assistente financeiro e organizador de vida do casal ${u1} e ${u2}.
-    Seu papel é analisar os dados financeiros e ajudar na gestão do "Life Hub" (Viagens, Metas, Assinaturas, Mercado e Manutenções).
-    REGRA DE OURO 1: Toda exclusão (lançamento, registro do Life Hub, lançamento fixo ou cartão) exige confirmação em duas etapas: 1ª chamada com o id gera um código de 4 dígitos e NÃO exclui nada. 2ª chamada, só com codigoConfirmacao, executa de fato.
-    REGRA DE OURO 2: Para viagens, metas, assinaturas, mercado ou manutenções, chame consultarDados (objeto 'diarios_e_listas'). Antes de criar um registro novo, observe o formato de um registro existente do mesmo tipo.
-    REGRA DE OURO 3: Sugira proativamente se o casal consegue bater uma Meta cruzando o "Saldo Restante" do mês com o valor faltante.
-    REGRA DE OURO 4: Seja claro, analítico, verdadeiro e amigável. Valores sempre em R$.
-    REGRA DE OURO 5: Use SEMPRE resumoMensal[chave] para saldo/receitas/despesas de um mês. NUNCA some 'transacoes' brutas por conta própria.
-    REGRA DE OURO 6: Para editar um lançamento (inclusive marcar como pago/recebido ou reabrir), use editarLancamento com o id e só os campos que mudaram — inclusive status ('aberto' ou 'ok'). Para marcar VÁRIOS de uma vez, use atualizarStatusEmMassa.
-    REGRA DE OURO 7: Para o Life Hub, use criarOuAtualizarRegistro/excluirRegistro com o 'tipo' EXATO: 'goal' (meta), 'trip' (viagem), 'subscription' (assinatura), 'shopping' (lista de mercado) ou 'maintenance' (manutenção) — nomes reais do sistema, nunca traduza. Para a regra de um lançamento fixo recorrente use criarOuAtualizarLancamentoFixo/excluirLancamentoFixo. Para cartões use criarOuAtualizarCartao/excluirCartao.
-    REGRA DE OURO 8: Você tem memória desta conversa (até ${CONTEXT_LIMIT} mensagens). Não peça pro usuário repetir o que ele já disse aqui.
-    REGRA DE OURO 9 (LANÇAMENTOS E FORMULÁRIO): Para registrar um lançamento, é OBRIGATÓRIO ter todos os campos (date, type, category, amount, paidBy, paymentMethod). Se a mensagem original do usuário não contiver TODOS eles de forma clara (ex: "lance 10 reais"):
-    1. Você é PROIBIDO de fazer perguntas no chat pedindo os dados que faltam.
-    2. Você DEVE IMEDIATAMENTE chamar a função 'abrirFormularioLancamento' passando em camposConhecidos os dados que conseguiu identificar.
-    3. ALERTA CRÍTICO: NUNCA afirme que um lançamento foi "registrado", "salvo" ou "adicionado" sem antes ter de fato chamado a ferramenta 'criarLancamento' e recebido a resposta do sistema com o ID de sucesso.    REGRA DE OURO 10: Se a mensagem começar com "[FORMULARIO_PREENCHIDO]" seguida de um JSON, isso é o resultado do formulário — já contém todos os campos. Chame criarLancamento diretamente com esses valores exatos, sem perguntar mais nada.
-    REGRA DE OURO 11: Se o usuário enviar imagem (comprovante, nota, print, foto de lista escrita à mão) ou áudio, interprete o conteúdo para entender o que ele quer e siga as demais regras normalmente.
-    REGRA DE OURO 12 (PARCELAS): Lançamentos parcelados compartilham um mesmo 'groupId' e têm 'installmentLabel' (ex: "2/12"). Ao criar um gasto parcelado, use installments em criarLancamento. Ao editar/excluir um lançamento de um grupo, SEMPRE pergunte antes se é só aquela parcela ou todas, e use updateGroup (editarLancamento) ou excluirGrupoTodo (excluirLancamento) conforme a resposta. Ao usar updateGroup, saiba que data e status NUNCA são propagados às outras parcelas — só categoria, descrição, valor, responsável, forma de pagamento e dados de terceiro.
-    REGRA DE OURO 13: Para transferir todos os lançamentos de um cartão para outra pessoa, use transferirTitularidadeCartao. Confirme com o usuário antes, dizendo quantos lançamentos serão afetados.
-    REGRA DE OURO 14 (LISTAS DE MERCADO): Ao criar uma lista de mercado (tipo 'shopping'), o campo 'title' é o nome do mercado/lista (ex: "Assaí Setembro", "Primeira Compra - Casa Nova") — SEMPRE pergunte esse nome ao usuário se ele não disser, antes de salvar. Se o usuário mandar uma FOTO de uma lista escrita à mão, extraia os nomes dos itens da imagem, pergunte o nome do mercado/lista se não foi dito, mostre a lista extraída pro usuário confirmar, e só então chame criarOuAtualizarRegistro. Se o usuário pedir uma lista sem dizer os itens (ex: "cria uma lista de compras pra gente"), você pode sugerir um rascunho de itens comuns, mas MOSTRE o rascunho e PERGUNTE se pode salvar antes de realmente chamar criarOuAtualizarRegistro — nunca salve uma lista grande e inventada sem confirmação do usuário.
-    REGRA DE OURO 15: Se você receber uma mensagem iniciada com "[SISTEMA]", o backend JÁ executou a ação com sucesso. Não chame nenhuma função. Apenas confirme amigavelmente ao usuário o que foi feito, em linguagem natural.
-    REGRA DE OURO 16: Depois que você chamou uma função de exclusão e ela retornou um código de confirmação, NUNCA chame essa mesma função novamente para o mesmo item — mesmo que o usuário envie uma mensagem diferente ou um código errado. Apenas repita o código original e aguarde. Só reinicie o processo se o usuário pedir explicitamente.`;
-    
+Seu papel é analisar dados financeiros e ajudar na gestão do "Life Hub" (Viagens, Metas, Assinaturas, Mercado e Manutenções).
+
+REGRA CRÍTICA — LANÇAMENTOS (leia com atenção máxima):
+Quando o usuário pedir para lançar, registrar, adicionar qualquer gasto ou receita:
+- Se a mensagem NÃO contiver explicitamente todos estes campos: data, tipo (gasto/receita), categoria, valor, quem pagou E forma de pagamento (se gasto) → você DEVE chamar IMEDIATAMENTE 'abrirFormularioLancamento' com os campos que já sabe em 'camposConhecidos'.
+- PROIBIDO fazer perguntas em texto pedindo dados do lançamento. PROIBIDO dizer "posso abrir um formulário". CHAME A FUNÇÃO AGORA sem texto explicativo.
+- PROIBIDO dizer que um lançamento foi "registrado" ou "salvo" sem ter chamado 'criarLancamento' E recebido id de sucesso do sistema.
+- Se a mensagem começa com "[FORMULARIO_PREENCHIDO]" seguida de JSON: chame 'criarLancamento' com esses valores exatos, sem perguntar nada.
+
+REGRA CRÍTICA — LIFE HUB:
+Quando o usuário pedir para criar/adicionar qualquer coisa no Life Hub (meta, viagem, lista de mercado, assinatura, manutenção):
+- Se faltar informação essencial (nome da lista, valor da meta, etc.) → chame IMEDIATAMENTE 'abrirFormularioLifeHub' com o tipo e os campos já conhecidos.
+- Para listas de mercado: SEMPRE pergunte o nome do mercado/lista antes de salvar se não foi dito. Se o usuário mandar FOTO de lista escrita à mão, extraia os itens, mostre a lista, pergunte o nome e só salve após confirmação.
+- PROIBIDO salvar um registro do Life Hub inventando campos que o usuário não forneceu.
+
+REGRA DE OURO 1: Toda exclusão exige confirmação em duas etapas com código de 4 dígitos. 1ª chamada com id → gera código, NÃO exclui. 2ª chamada com codigoConfirmacao → exclui.
+REGRA DE OURO 2: Use SEMPRE resumoMensal[chave] para saldo/receitas/despesas. NUNCA some transacoes brutas.
+REGRA DE OURO 3: Para o Life Hub, use 'tipo' EXATO: 'goal' (meta), 'trip' (viagem), 'subscription' (assinatura), 'shopping' (mercado), 'maintenance' (manutenção).
+REGRA DE OURO 4: Ao usar updateGroup em editarLancamento, data e status NUNCA são propagados — só categoria, descrição, valor, responsável, forma de pagamento e dados de terceiro.
+REGRA DE OURO 5: Para transferir lançamentos de um cartão para outra pessoa, use transferirTitularidadeCartao. Confirme antes.
+REGRA DE OURO 6: Você tem memória desta conversa (até ${CONTEXT_LIMIT} mensagens). Não peça repetição.
+REGRA DE OURO 7: Se receber mensagem iniciada com "[SISTEMA]", o backend JÁ executou a ação. Apenas confirme amigavelmente ao usuário. Não chame nenhuma função.
+REGRA DE OURO 8: Se o usuário enviar imagem ou áudio, interprete o conteúdo e siga as regras normalmente — inclusive abrindo formulário se faltar informação.
+REGRA DE OURO 9: Sugira proativamente se o casal consegue bater uma Meta cruzando o Saldo Restante do mês com o valor faltante.`;
+
     const tools = [{
       functionDeclarations: [
         {
@@ -130,122 +132,128 @@ export default async (req) => {
           parameters: {
             type: "OBJECT",
             properties: {
-              mesReferencia: { type: "STRING", description: "Mês (AAAA-MM) para uso de cartões. Opcional, padrão é o mês atual." }
+              mesReferencia: { type: "STRING", description: "Mês AAAA-MM para uso de cartões. Opcional." }
             }
           }
         },
         {
           name: "abrirFormularioLancamento",
-          description: "Chame quando faltar informação pra registrar um lançamento. Mostra um formulário interativo pro usuário completar. NÃO chame criarLancamento nesse caso.",
+          description: "OBRIGATÓRIO chamar quando o usuário pedir para lançar/registrar um gasto ou receita e qualquer campo estiver faltando. Abre formulário interativo no chat. NÃO faça perguntas em texto — chame esta função diretamente.",
           parameters: {
             type: "OBJECT",
             properties: {
-              camposConhecidos: { type: "STRING", description: "JSON (texto) com o que você já sabe, ex: {\"amount\":50,\"type\":\"gasto\",\"description\":\"dívida\"}" }
+              camposConhecidos: { type: "STRING", description: "JSON com campos já identificados, ex: {\"amount\":10,\"type\":\"gasto\",\"description\":\"café\"}" }
             },
             required: ["camposConhecidos"]
           }
         },
         {
-          name: "criarLancamento",
-          description: "Cria um lançamento financeiro. Se installments > 1, gera automaticamente as parcelas nos meses seguintes, todas com o mesmo groupId.",
+          name: "abrirFormularioLifeHub",
+          description: "OBRIGATÓRIO chamar quando o usuário pedir para criar/adicionar algo no Life Hub e informações estiverem faltando. Abre formulário interativo no chat. NÃO faça perguntas em texto.",
           parameters: {
             type: "OBJECT",
             properties: {
-              date: { type: "STRING", description: "YYYY-MM-DD (data da 1ª parcela)" },
+              tipo: { type: "STRING", description: "'goal', 'trip', 'subscription', 'shopping' ou 'maintenance'" },
+              camposConhecidos: { type: "STRING", description: "JSON com campos já identificados pelo usuário" }
+            },
+            required: ["tipo", "camposConhecidos"]
+          }
+        },
+        {
+          name: "criarLancamento",
+          description: "Cria um lançamento financeiro. Só chame quando tiver TODOS os campos obrigatórios.",
+          parameters: {
+            type: "OBJECT",
+            properties: {
+              date: { type: "STRING", description: "YYYY-MM-DD" },
               type: { type: "STRING", description: "'gasto' ou 'receita'" },
-              category: { type: "STRING", description: "Categoria exata da lista do tipo correspondente" },
+              category: { type: "STRING", description: "Categoria exata da lista do tipo" },
               description: { type: "STRING", description: "Descrição curta" },
-              amount: { type: "NUMBER", description: "Valor de CADA parcela (não o total)" },
+              amount: { type: "NUMBER", description: "Valor de cada parcela" },
               paidBy: { type: "STRING", description: "ID de quem pagou (u1 ou u2)" },
-              paymentMethod: { type: "STRING", description: "dinheiro, debito, pix, transferencia, ou card_<id>. Null se for receita." },
-              installments: { type: "NUMBER", description: "Número de parcelas. Omita ou use 1 para lançamento único." },
-              isThirdParty: { type: "BOOLEAN", description: "true se for dívida/gasto de terceiro" },
-              thirdPartyName: { type: "STRING", description: "Nome do terceiro, se isThirdParty" },
-              thirdPartyDate: { type: "STRING", description: "Data combinada com o terceiro (YYYY-MM-DD), se isThirdParty" }
+              paymentMethod: { type: "STRING", description: "dinheiro, debito, pix, transferencia, ou card_<id>. Null se receita." },
+              installments: { type: "NUMBER", description: "Parcelas. Omita ou 1 para único." },
+              isThirdParty: { type: "BOOLEAN" },
+              thirdPartyName: { type: "STRING" },
+              thirdPartyDate: { type: "STRING" }
             },
             required: ["date", "type", "category", "amount", "paidBy"]
           }
         },
         {
           name: "editarLancamento",
-          description: "Edita um lançamento. Use status para 'ok' (pago/recebido) ou 'aberto' (reabrir). Use updateGroup=true para aplicar categoria/descrição/valor/responsável/forma de pagamento/terceiro em TODAS as parcelas do mesmo grupo (data e status nunca são propagados).",
+          description: "Edita um lançamento. status: 'ok' ou 'aberto'. updateGroup=true propaga para todas as parcelas (exceto date e status).",
           parameters: {
             type: "OBJECT",
             properties: {
-              id: { type: "STRING", description: "ID do lançamento" },
-              date: { type: "STRING", description: "opcional" },
-              type: { type: "STRING", description: "opcional" },
-              category: { type: "STRING", description: "opcional" },
-              description: { type: "STRING", description: "opcional" },
-              amount: { type: "NUMBER", description: "opcional" },
-              paidBy: { type: "STRING", description: "opcional" },
-              paymentMethod: { type: "STRING", description: "opcional" },
-              status: { type: "STRING", description: "'ok' ou 'aberto', opcional" },
-              isThirdParty: { type: "BOOLEAN", description: "opcional" },
-              thirdPartyName: { type: "STRING", description: "opcional" },
-              thirdPartyDate: { type: "STRING", description: "opcional" },
-              updateGroup: { type: "BOOLEAN", description: "true aplica em todas as parcelas do grupo (exceto data/status). Só use depois de perguntar ao usuário." }
+              id: { type: "STRING" },
+              date: { type: "STRING" },
+              type: { type: "STRING" },
+              category: { type: "STRING" },
+              description: { type: "STRING" },
+              amount: { type: "NUMBER" },
+              paidBy: { type: "STRING" },
+              paymentMethod: { type: "STRING" },
+              status: { type: "STRING", description: "'ok' ou 'aberto'" },
+              isThirdParty: { type: "BOOLEAN" },
+              thirdPartyName: { type: "STRING" },
+              thirdPartyDate: { type: "STRING" },
+              updateGroup: { type: "BOOLEAN" }
             },
             required: ["id"]
           }
         },
         {
           name: "atualizarStatusEmMassa",
-          description: "Marca vários lançamentos como 'ok' (pago/recebido) ou 'aberto' (reabrir) de uma só vez. Use quando o usuário pedir algo como 'marca tudo de setembro como pago'.",
+          description: "Marca vários lançamentos como 'ok' ou 'aberto' de uma vez.",
           parameters: {
             type: "OBJECT",
             properties: {
-              ids: { type: "ARRAY", items: { type: "STRING" }, description: "Lista de IDs dos lançamentos" },
-              status: { type: "STRING", description: "'ok' ou 'aberto'" }
+              ids: { type: "ARRAY", items: { type: "STRING" } },
+              status: { type: "STRING" }
             },
             required: ["ids", "status"]
           }
         },
         {
           name: "excluirLancamento",
-          description: "1ª chamada: id (gera código). 2ª chamada: só codigoConfirmacao. Use excluirGrupoTodo=true na 1ª chamada para excluir todas as parcelas do grupo.",
+          description: "1ª chamada: id (gera código). 2ª chamada: só codigoConfirmacao. excluirGrupoTodo=true exclui todas as parcelas.",
           parameters: {
             type: "OBJECT",
             properties: {
               id: { type: "STRING" },
-              excluirGrupoTodo: { type: "BOOLEAN", description: "true exclui todas as parcelas do grupo. Só use depois de perguntar ao usuário." },
+              excluirGrupoTodo: { type: "BOOLEAN" },
               codigoConfirmacao: { type: "STRING" }
             }
           }
         },
         {
           name: "transferirTitularidadeCartao",
-          description: "Transfere TODOS os lançamentos de uma forma de pagamento (geralmente um cartão) para outra pessoa. Confirme com o usuário antes.",
+          description: "Transfere TODOS os lançamentos de uma forma de pagamento para outra pessoa. Confirme antes.",
           parameters: {
             type: "OBJECT",
             properties: {
-              formaPagamento: { type: "STRING", description: "ID da forma de pagamento, ex: card_1" },
-              novoDono: { type: "STRING", description: "ID da pessoa que passa a ser dona (u1 ou u2)" }
+              formaPagamento: { type: "STRING" },
+              novoDono: { type: "STRING" }
             },
             required: ["formaPagamento", "novoDono"]
           }
         },
         {
           name: "criarOuAtualizarRegistro",
-          description: `Cria/atualiza um registro do Life Hub. O campo 'tipo' deve ser EXATAMENTE um destes valores em inglês (nomes reais do sistema, não traduza):
-
-- 'goal' (Meta do Casal): dados = {"title": string, "target": number, "saved": number}
-
-- 'trip' (Viagem/Roteiro): dados = {"title": string, "date": "AAAA-MM-01", "places": [{"id": "string único, ex: p1", "name": string, "link": string ou "", "estCost": number}]}. Para uma viagem nova sem locais ainda, use "places": [].
-
-- 'subscription' (Assinatura): dados = {"title": string, "cost": number, "cycle": "Mensal" ou "Anual"}
-
-- 'shopping' (Lista de Mercado): dados = {"title": string (nome do mercado/lista, ex: "Assaí Setembro"), "date": "AAAA-MM-DD", "items": [{"id": "string único, ex: i1", "name": string, "qty": number, "price": 0, "checked": false}]}. Cada item precisa ter TODOS esses 5 campos, com "price": 0 e "checked": false por padrão (o casal preenche o preço depois, no mercado).
-
-- 'maintenance' (Manutenção de veículo/casa): dados = {"vehicle": string, "service": string, "km": number, "cost": number, "date": "AAAA-MM-DD"}
-
-Ao atualizar (id preenchido), envie só os campos que mudaram. Para adicionar um item a uma lista de mercado existente ou um local a uma viagem existente, releia o registro via consultarDados, pegue o array atual (items ou places), acrescente o novo item/local mantendo os já existentes, e mande o array completo de volta.`,
+          description: `Cria/atualiza um registro do Life Hub. Tipos e schemas EXATOS:
+- 'goal': {"title": string, "target": number, "saved": number}
+- 'trip': {"title": string, "date": "AAAA-MM-01", "places": [{"id":"p1","name":string,"link":string,"estCost":number}]}
+- 'subscription': {"title": string, "cost": number, "cycle": "Mensal" ou "Anual"}
+- 'shopping': {"title": string, "date": "AAAA-MM-DD", "items": [{"id":"i1","name":string,"qty":number,"price":0,"checked":false}]}
+- 'maintenance': {"vehicle": string, "service": string, "km": number, "cost": number, "date": "AAAA-MM-DD"}
+Para adicionar item a lista existente: leia via consultarDados, acrescente ao array e mande o array completo.`,
           parameters: {
             type: "OBJECT",
             properties: {
-              id: { type: "STRING", description: "Vazio para criar novo" },
-              tipo: { type: "STRING", description: "'goal', 'trip', 'subscription', 'shopping' ou 'maintenance'" },
-              dados: { type: "STRING", description: "JSON (texto) com os campos do tipo escolhido, conforme descrito acima." }
+              id: { type: "STRING", description: "Vazio para criar" },
+              tipo: { type: "STRING" },
+              dados: { type: "STRING" }
             },
             required: ["tipo", "dados"]
           }
@@ -260,12 +268,12 @@ Ao atualizar (id preenchido), envie só os campos que mudaram. Para adicionar um
         },
         {
           name: "criarOuAtualizarLancamentoFixo",
-          description: "Cria/atualiza a REGRA de um lançamento fixo recorrente.",
+          description: "Cria/atualiza regra de lançamento fixo recorrente.",
           parameters: {
             type: "OBJECT",
             properties: {
-              id: { type: "STRING", description: "Vazio para criar" },
-              dados: { type: "STRING", description: "JSON com: type ('gasto'/'receita'), category, description, amount, person (id), dueDay, startsAt (AAAA-MM), expiresAt (AAAA-MM, opcional)" }
+              id: { type: "STRING" },
+              dados: { type: "STRING", description: "JSON: type, category, description, amount, person (id), dueDay, startsAt (AAAA-MM), expiresAt (opcional)" }
             },
             required: ["dados"]
           }
@@ -280,12 +288,12 @@ Ao atualizar (id preenchido), envie só os campos que mudaram. Para adicionar um
         },
         {
           name: "criarOuAtualizarCartao",
-          description: "Cria/atualiza um cartão de crédito.",
+          description: "Cria/atualiza cartão de crédito.",
           parameters: {
             type: "OBJECT",
             properties: {
-              id: { type: "STRING", description: "Vazio para criar" },
-              dados: { type: "STRING", description: "JSON com: name, owner (id da pessoa), limit (número), closeDay (dia de fechamento)" }
+              id: { type: "STRING" },
+              dados: { type: "STRING", description: "JSON: name, owner (id), limit (número), closeDay" }
             },
             required: ["dados"]
           }
@@ -301,31 +309,19 @@ Ao atualizar (id preenchido), envie só os campos que mudaram. Para adicionar um
       ]
     }];
 
-    const chat = ai.chats.create({
-      model: "gemini-2.5-flash-lite",
-      config: { systemInstruction, tools },
-      history: historyForGemini
-    });
-
+    // ---------- INTERCEPTAÇÃO DETERMINÍSTICA DE EXCLUSÃO ----------
     let messageToSend = message || '';
-    if (attachment && attachment.data && attachment.mimeType) {
-      messageToSend = [
-        { text: message || 'Segue um anexo.' },
-        { inlineData: { mimeType: attachment.mimeType, data: attachment.data } }
-      ];
-    }
-
     let uiAction = null;
     let pendingForm = null;
 
-    // --- INÍCIO DA INTERCEPTAÇÃO DETERMINÍSTICA DE EXCLUSÃO ---
     const trimmedMsg = typeof message === 'string' ? message.trim() : '';
-    const codeMatch = /^\d{4}$/.test(trimmedMsg) ? [trimmedMsg] : null;
-    if (codeMatch) {
-      const pendingDeletions = await getPendingDeletions();
-      const matchedPending = pendingDeletions.find(p => p.codigo === codeMatch[0]);
+    if (/^\d{4}$/.test(trimmedMsg)) {
+      const allPending = await readJSON(STORE, 'pending_deletions.json', []);
+      const validPending = allPending.filter(p => p.expiresAt > Date.now());
+      const matchedPending = validPending.find(p => p.codigo === trimmedMsg);
 
       if (matchedPending) {
+        // Executa a exclusão determinísticamente — sem depender da IA
         if (matchedPending.entity === 'transaction') {
           const list = await readJSON(STORE, 'transactions.json', []);
           const idx = list.findIndex(t => t.id === matchedPending.id);
@@ -372,22 +368,30 @@ Ao atualizar (id preenchido), envie só os campos que mudaram. Para adicionar um
           }
         }
 
-        // Invalida o código pendente
-        await writeJSON(STORE, 'pending_deletions.json', pendingDeletions.filter(p => p !== matchedPending));
-
-        messageToSend = `[SISTEMA] O usuário forneceu o código correto (${codeMatch[0]}). O item já foi excluído do banco de dados COM SUCESSO pelo sistema via API. Não chame mais a ferramenta de exclusão. Apenas avise amigavelmente que o item foi apagado.`;
-    uiAction = 'RELOAD_DATA';
-  } else {
-    // Verifica se existem pendências expiradas com esse código
-    const allPending = await readJSON(STORE, 'pending_deletions.json', []);
-    const expired = allPending.find(p => p.codigo === codeMatch[0]);
-    if (expired) {
-      messageToSend = `[SISTEMA] O código ${codeMatch[0]} era válido mas expirou. Informe o usuário que o código de confirmação expirou e que ele precisa solicitar a exclusão novamente para receber um novo código.`;
+        await writeJSON(STORE, 'pending_deletions.json', validPending.filter(p => p !== matchedPending));
+        messageToSend = `[SISTEMA] Código correto. Item excluído com sucesso. Avise ao usuário de forma amigável que foi feito.`;
+        uiAction = 'RELOAD_DATA';
+      } else {
+        const expiredMatch = allPending.find(p => p.codigo === trimmedMsg);
+        if (expiredMatch) {
+          messageToSend = `[SISTEMA] O código ${trimmedMsg} expirou. Informe ao usuário que o código não é mais válido e que deve solicitar a exclusão novamente para receber um novo código.`;
+        }
+      }
     }
-    // Se não há nenhuma pendência com esse código, deixa a mensagem ir pra IA normalmente
-  }
-}
-    // --- FIM DA INTERCEPTAÇÃO ---
+    // ---------- FIM DA INTERCEPTAÇÃO ----------
+
+    if (attachment && attachment.data && attachment.mimeType && !messageToSend.startsWith('[SISTEMA]')) {
+      messageToSend = [
+        { text: message || 'Segue um anexo.' },
+        { inlineData: { mimeType: attachment.mimeType, data: attachment.data } }
+      ];
+    }
+
+    const chat = ai.chats.create({
+      model: "gemini-2.5-flash-lite",
+      config: { systemInstruction, tools },
+      history: historyForGemini
+    });
 
     let result = await chat.sendMessage({ message: messageToSend });
     let functionCall = result.functionCalls && result.functionCalls[0];
@@ -427,7 +431,22 @@ Ao atualizar (id preenchido), envie só os campos que mudaram. Para adicionar um
             cartoes: (settings.cards || []).map(c => ({ id: c.id, name: c.name }))
           }
         };
-        toolResponse = { sucesso: true, mensagem: 'Formulário aberto para o usuário preencher.' };
+        toolResponse = { sucesso: true, mensagem: 'Formulário aberto no chat.' };
+      }
+
+      else if (functionCall.name === 'abrirFormularioLifeHub') {
+        let known = {};
+        try { known = JSON.parse(args.camposConhecidos || '{}'); } catch { known = {}; }
+        const settings = await readJSON(STORE, 'settings.json', {});
+        pendingForm = {
+          tipo: args.tipo || 'shopping',
+          camposConhecidos: known,
+          opcoes: {
+            pessoas: settings.people || [],
+            cartoes: (settings.cards || []).map(c => ({ id: c.id, name: c.name }))
+          }
+        };
+        toolResponse = { sucesso: true, mensagem: 'Formulário Life Hub aberto no chat.' };
       }
 
       else if (functionCall.name === 'criarLancamento') {
@@ -436,34 +455,26 @@ Ao atualizar (id preenchido), envie só os campos que mudaram. Para adicionar um
         const installments = parseInt(args.installments) || 1;
         const groupId = installments > 1 ? crypto.randomUUID() : null;
         const criados = [];
-
         for (let i = 0; i < installments; i++) {
           const txDate = new Date(args.date);
           txDate.setMonth(txDate.getMonth() + i);
           const item = {
-            id: crypto.randomUUID(),
-            groupId,
+            id: crypto.randomUUID(), groupId,
             installmentLabel: installments > 1 ? `${i + 1}/${installments}` : null,
             isThirdParty: Boolean(args.isThirdParty),
             thirdPartyName: args.isThirdParty ? (args.thirdPartyName || null) : null,
             thirdPartyDate: args.isThirdParty ? (args.thirdPartyDate || null) : null,
             date: txDate.toISOString().split('T')[0],
-            type: args.type,
-            category: args.category,
+            type: args.type, category: args.category,
             description: args.description || '',
-            amount: Number(args.amount),
-            paidBy: args.paidBy,
+            amount: Number(args.amount), paidBy: args.paidBy,
             paymentMethod: args.paymentMethod || 'outro',
-            status: 'aberto',
-            fixedRefId: null,
-            createdBy: 'IA Assistente',
-            createdAt: now,
-            updatedAt: now
+            status: 'aberto', fixedRefId: null,
+            createdBy: 'IA Assistente', createdAt: now, updatedAt: now
           };
           list.push(item);
           criados.push(item);
         }
-
         await writeJSON(STORE, 'transactions.json', list);
         await appendAudit(user, 'create', 'transaction', criados[0].id, null, criados[0]);
         toolResponse = { sucesso: true, id: criados[0].id, parcelasCriadas: criados.length, groupId };
@@ -473,17 +484,14 @@ Ao atualizar (id preenchido), envie só os campos que mudaram. Para adicionar um
       else if (functionCall.name === 'editarLancamento') {
         const list = await readJSON(STORE, 'transactions.json', []);
         const idx = list.findIndex(t => t.id === args.id);
-        if (idx === -1) {
-          toolResponse = { sucesso: false, erro: 'ID não encontrado' };
-        } else {
+        if (idx === -1) { toolResponse = { sucesso: false, erro: 'ID não encontrado' }; }
+        else {
           const before = { ...list[idx] };
           const { id, updateGroup, ...changes } = args;
           if (changes.amount !== undefined) changes.amount = Number(changes.amount);
           const now = new Date().toISOString();
           const targetGroupId = list[idx].groupId;
-
           if (updateGroup && targetGroupId) {
-            // Só propaga os campos seguros — igual ao transactions.js real (nunca data nem status)
             const safeChanges = {};
             for (const key of GROUP_CASCADE_FIELDS) {
               if (changes[key] !== undefined) safeChanges[key] = changes[key];
@@ -539,12 +547,11 @@ Ao atualizar (id preenchido), envie só os campos que mudaram. Para adicionar um
             if (idx === -1) { toolResponse = { sucesso: false, erro: 'Já não existe mais.' }; }
             else {
               const before = list[idx];
-              const targetGroupId = before.groupId;
-              if (match.excluirGrupoTodo && targetGroupId) {
-                const restante = list.filter(t => t.groupId !== targetGroupId);
+              if (match.excluirGrupoTodo && before.groupId) {
+                const restante = list.filter(t => t.groupId !== before.groupId);
                 const removidas = list.length - restante.length;
                 await writeJSON(STORE, 'transactions.json', restante);
-                await appendAudit(user, 'delete_group', 'transaction_group', targetGroupId, before, null);
+                await appendAudit(user, 'delete_group', 'transaction_group', before.groupId, before, null);
                 toolResponse = { sucesso: true, mensagem: `Grupo excluído (${removidas} parcelas).` };
               } else {
                 list.splice(idx, 1);
@@ -562,15 +569,11 @@ Ao atualizar (id preenchido), envie só os campos que mudaram. Para adicionar um
           else {
             const item = list[idx];
             const totalGrupo = item.groupId ? list.filter(t => t.groupId === item.groupId).length : 1;
-            toolResponse = await requestDeletionCode(
-              'transaction', args.id,
-              {
-                descricao: item.description, valor: item.amount, data: item.date,
-                parcela: item.installmentLabel,
-                escopo: args.excluirGrupoTodo ? `TODAS as ${totalGrupo} parcelas do grupo` : 'somente este lançamento'
-              },
-              { excluirGrupoTodo: Boolean(args.excluirGrupoTodo) }
-            );
+            toolResponse = await requestDeletionCode('transaction', args.id, {
+              descricao: item.description, valor: item.amount, data: item.date,
+              parcela: item.installmentLabel,
+              escopo: args.excluirGrupoTodo ? `TODAS as ${totalGrupo} parcelas` : 'somente este lançamento'
+            }, { excluirGrupoTodo: Boolean(args.excluirGrupoTodo) });
           }
         }
       }
@@ -752,7 +755,7 @@ Ao atualizar (id preenchido), envie só os campos que mudaram. Para adicionar um
     }
 
     const now = new Date().toISOString();
-    const textForHistory = (message || '') + (attachment ? ` [anexo enviado: ${attachment.mimeType}]` : '');
+    const textForHistory = (message || '') + (attachment ? ` [anexo: ${attachment.mimeType}]` : '');
     session.messages.push({ role: 'user', text: textForHistory, timestamp: now });
     session.messages.push({ role: 'model', text: result.text || '', timestamp: now });
     session.updatedAt = now;
