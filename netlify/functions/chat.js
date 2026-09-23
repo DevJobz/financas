@@ -5,7 +5,7 @@ import { verifyToken, cors } from './_shared/authMiddleware.js';
 import { buildMonthlySummary, getCardsUsage, monthKey } from './_shared/financeEngine.js';
 
 const STORE = 'financas';
-const CONFIRMATION_TTL_MS = 5 * 60 * 1000;
+const CONFIRMATION_TTL_MS = 30 * 60 * 1000;
 const CONTEXT_LIMIT = parseInt(process.env.CHAT_CONTEXT_LIMIT || '100', 10);
 
 // Campos que podem ser propagados em cascata para todas as parcelas de um grupo.
@@ -94,16 +94,9 @@ export default async (req) => {
     }
 
     const historyForGemini = session.messages
-    .slice(-CONTEXT_LIMIT)
-    .filter(m => m.text !== null && m.text !== undefined && m.text.trim() !== '')
-    .reduce((acc, m) => {
-        // Garante alternância correta user/model (Gemini rejeita dois do mesmo tipo seguidos)
-        if (acc.length === 0 || acc[acc.length - 1].role !== m.role) {
-            acc.push(m);
-        }
-        return acc;
-    }, [])
-    .map(m => ({ role: m.role, parts: [{ text: m.text }] }));
+  .slice(-CONTEXT_LIMIT)
+  .filter(m => m.text !== null && m.text !== undefined && String(m.text).trim() !== '')
+  .map(m => ({ role: m.role, parts: [{ text: m.text }] }));
 
     const u1 = process.env.USER1_NAME || 'Pessoa 1';
     const u2 = process.env.USER2_NAME || 'Pessoa 2';
@@ -380,11 +373,18 @@ Ao atualizar (id preenchido), envie só os campos que mudaram. Para adicionar um
         // Invalida o código pendente
         await writeJSON(STORE, 'pending_deletions.json', pendingDeletions.filter(p => p !== matchedPending));
 
-        // Substitui a mensagem do usuário por um comando interno para a IA
         messageToSend = `[SISTEMA] O usuário forneceu o código correto (${codeMatch[0]}). O item já foi excluído do banco de dados COM SUCESSO pelo sistema via API. Não chame mais a ferramenta de exclusão. Apenas avise amigavelmente que o item foi apagado.`;
-        uiAction = 'RELOAD_DATA';
-      }
+    uiAction = 'RELOAD_DATA';
+  } else {
+    // Verifica se existem pendências expiradas com esse código
+    const allPending = await readJSON(STORE, 'pending_deletions.json', []);
+    const expired = allPending.find(p => p.codigo === codeMatch[0]);
+    if (expired) {
+      messageToSend = `[SISTEMA] O código ${codeMatch[0]} era válido mas expirou. Informe o usuário que o código de confirmação expirou e que ele precisa solicitar a exclusão novamente para receber um novo código.`;
     }
+    // Se não há nenhuma pendência com esse código, deixa a mensagem ir pra IA normalmente
+  }
+}
     // --- FIM DA INTERCEPTAÇÃO ---
 
     let result = await chat.sendMessage({ message: messageToSend });
