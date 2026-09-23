@@ -33,7 +33,7 @@ async function saveSessions(sessions) {
 async function generateTitle(ai, userMsg, aiMsg) {
   try {
     const r = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-2.5-flash-lite',
       contents: `Gere um título curto (3 a 6 palavras, sem aspas, sem ponto final) para esta conversa de um app financeiro de casal, baseado na troca abaixo. Responda APENAS com o título.\n\nUsuário: ${userMsg}\nAssistente: ${String(aiMsg || '').slice(0, 300)}`
     });
     const title = (r.text || '').trim().replace(/^["'“”]+|["'“”]+$/g, '').replace(/\.$/, '');
@@ -94,8 +94,16 @@ export default async (req) => {
     }
 
     const historyForGemini = session.messages
-      .slice(-CONTEXT_LIMIT)
-      .map(m => ({ role: m.role, parts: [{ text: m.text }] }));
+    .slice(-CONTEXT_LIMIT)
+    .filter(m => m.text !== null && m.text !== undefined && m.text.trim() !== '')
+    .reduce((acc, m) => {
+        // Garante alternância correta user/model (Gemini rejeita dois do mesmo tipo seguidos)
+        if (acc.length === 0 || acc[acc.length - 1].role !== m.role) {
+            acc.push(m);
+        }
+        return acc;
+    }, [])
+    .map(m => ({ role: m.role, parts: [{ text: m.text }] }));
 
     const u1 = process.env.USER1_NAME || 'Pessoa 1';
     const u2 = process.env.USER2_NAME || 'Pessoa 2';
@@ -115,8 +123,10 @@ export default async (req) => {
     REGRA DE OURO 11: Se o usuário enviar imagem (comprovante, nota, print, foto de lista escrita à mão) ou áudio, interprete o conteúdo para entender o que ele quer e siga as demais regras normalmente.
     REGRA DE OURO 12 (PARCELAS): Lançamentos parcelados compartilham um mesmo 'groupId' e têm 'installmentLabel' (ex: "2/12"). Ao criar um gasto parcelado, use installments em criarLancamento. Ao editar/excluir um lançamento de um grupo, SEMPRE pergunte antes se é só aquela parcela ou todas, e use updateGroup (editarLancamento) ou excluirGrupoTodo (excluirLancamento) conforme a resposta. Ao usar updateGroup, saiba que data e status NUNCA são propagados às outras parcelas — só categoria, descrição, valor, responsável, forma de pagamento e dados de terceiro.
     REGRA DE OURO 13: Para transferir todos os lançamentos de um cartão para outra pessoa, use transferirTitularidadeCartao. Confirme com o usuário antes, dizendo quantos lançamentos serão afetados.
-    REGRA DE OURO 14 (LISTAS DE MERCADO): Ao criar uma lista de mercado (tipo 'shopping'), o campo 'title' é o nome do mercado/lista (ex: "Assaí Setembro", "Primeira Compra - Casa Nova") — SEMPRE pergunte esse nome ao usuário se ele não disser, antes de salvar. Se o usuário mandar uma FOTO de uma lista escrita à mão, extraia os nomes dos itens da imagem, pergunte o nome do mercado/lista se não foi dito, mostre a lista extraída pro usuário confirmar, e só então chame criarOuAtualizarRegistro. Se o usuário pedir uma lista sem dizer os itens (ex: "cria uma lista de compras pra gente"), você pode sugerir um rascunho de itens comuns, mas MOSTRE o rascunho e PERGUNTE se pode salvar antes de realmente chamar criarOuAtualizarRegistro — nunca salve uma lista grande e inventada sem confirmação do usuário.`;
-
+    REGRA DE OURO 14 (LISTAS DE MERCADO): Ao criar uma lista de mercado (tipo 'shopping'), o campo 'title' é o nome do mercado/lista (ex: "Assaí Setembro", "Primeira Compra - Casa Nova") — SEMPRE pergunte esse nome ao usuário se ele não disser, antes de salvar. Se o usuário mandar uma FOTO de uma lista escrita à mão, extraia os nomes dos itens da imagem, pergunte o nome do mercado/lista se não foi dito, mostre a lista extraída pro usuário confirmar, e só então chame criarOuAtualizarRegistro. Se o usuário pedir uma lista sem dizer os itens (ex: "cria uma lista de compras pra gente"), você pode sugerir um rascunho de itens comuns, mas MOSTRE o rascunho e PERGUNTE se pode salvar antes de realmente chamar criarOuAtualizarRegistro — nunca salve uma lista grande e inventada sem confirmação do usuário.
+    REGRA DE OURO 15: Se você receber uma mensagem iniciada com "[SISTEMA]", o backend JÁ executou a ação com sucesso. Não chame nenhuma função. Apenas confirme amigavelmente ao usuário o que foi feito, em linguagem natural.
+    REGRA DE OURO 16: Depois que você chamou uma função de exclusão e ela retornou um código de confirmação, NUNCA chame essa mesma função novamente para o mesmo item — mesmo que o usuário envie uma mensagem diferente ou um código errado. Apenas repita o código original e aguarde. Só reinicie o processo se o usuário pedir explicitamente.`;
+    
     const tools = [{
       functionDeclarations: [
         {
@@ -297,7 +307,7 @@ Ao atualizar (id preenchido), envie só os campos que mudaram. Para adicionar um
     }];
 
     const chat = ai.chats.create({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.5-flash-lite",
       config: { systemInstruction, tools },
       history: historyForGemini
     });
@@ -314,7 +324,8 @@ Ao atualizar (id preenchido), envie só os campos que mudaram. Para adicionar um
     let pendingForm = null;
 
     // --- INÍCIO DA INTERCEPTAÇÃO DETERMINÍSTICA DE EXCLUSÃO ---
-    const codeMatch = typeof message === 'string' ? message.match(/\b\d{4}\b/) : null;
+    const trimmedMsg = typeof message === 'string' ? message.trim() : '';
+    const codeMatch = /^\d{4}$/.test(trimmedMsg) ? [trimmedMsg] : null;
     if (codeMatch) {
       const pendingDeletions = await getPendingDeletions();
       const matchedPending = pendingDeletions.find(p => p.codigo === codeMatch[0]);
@@ -741,7 +752,7 @@ Ao atualizar (id preenchido), envie só os campos que mudaram. Para adicionar um
     const now = new Date().toISOString();
     const textForHistory = (message || '') + (attachment ? ` [anexo enviado: ${attachment.mimeType}]` : '');
     session.messages.push({ role: 'user', text: textForHistory, timestamp: now });
-    session.messages.push({ role: 'model', text: result.text, timestamp: now });
+    session.messages.push({ role: 'model', text: result.text || '', timestamp: now });
     session.updatedAt = now;
     if (!session.title) session.title = await generateTitle(ai, textForHistory, result.text);
     await saveSessions(sessions);
