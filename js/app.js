@@ -2394,9 +2394,19 @@ const App = (() => {
 
     const chatModal = el('#chat-modal');
     el('#btn-toggle-chat').addEventListener('click', () => {
-      chatModal.classList.toggle('open');
-      if (chatModal.classList.contains('open')) showChatList();
-    });
+    const abrindo = !chatModal.classList.contains('open');
+    chatModal.classList.toggle('open');
+    if (abrindo) {
+        if (currentChatId) {
+            // Retoma a conversa ativa sem resetar o estado
+            el('#chat-list-view').style.display = 'none';
+            el('#chat-conversation-view').style.display = 'flex';
+            el('#btn-back-to-list').style.display = 'inline-block';
+        } else {
+            showChatList();
+        }
+    }
+});
     el('#btn-close-chat').addEventListener('click', () => chatModal.classList.remove('open'));
     el('#btn-new-chat').addEventListener('click', startNewChat);
     el('#btn-back-to-list').addEventListener('click', showChatList);
