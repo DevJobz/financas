@@ -1236,11 +1236,64 @@ const App = (() => {
   function renderLancamentosRows(list) {
     if (state.filterSort !== 'category') return list.map(rowTransacao).join('');
 
+    // 1. Calcular totais por categoria antes de renderizar
+    const catTotals = {};
+    list.forEach(t => {
+      const cat = t.category || 'Sem categoria';
+      if (!catTotals[cat]) catTotals[cat] = { total: 0, byPerson: {} };
+      
+      // Define o sinal (receita = positivo, gasto = negativo) para fechar o caixa líquido da categoria
+      const val = t.type === 'receita' ? t.amount : -t.amount;
+      catTotals[cat].total += val;
+      
+      if (!catTotals[cat].byPerson[t.paidBy]) catTotals[cat].byPerson[t.paidBy] = 0;
+      catTotals[cat].byPerson[t.paidBy] += val;
+    });
+
     let html = '';
     let lastCategory = null;
+    
     list.forEach((t) => {
       if (t.category !== lastCategory) {
-        html += `<tr class="category-group-row"><td colspan="8">${t.category || 'Sem categoria'}</td></tr>`;
+        const cat = t.category || 'Sem categoria';
+        const totals = catTotals[cat];
+        const isPositive = totals.total >= 0;
+        const sign = isPositive ? '+' : '−';
+        const colorClass = isPositive ? 'positive' : 'negative';
+        const formattedTotal = Utils.fmtBRL(Math.abs(totals.total));
+
+        let detailsHtml = '';
+        // Mostrar divisão individual APENAS se o filtro estiver em "todos"
+        if (state.filterPerson === 'todos' && Object.keys(totals.byPerson).length > 0) {
+          const peopleInfo = getPeople().map(p => {
+            const val = totals.byPerson[p.id];
+            if (val === undefined) return ''; // Ignora quem não teve lançamento nesta categoria
+            const vSign = val >= 0 ? '+' : '−';
+            return `<span style="font-size: 11px; font-weight: 500; color: var(--ink-faint); margin-left: 12px; display: inline-flex; align-items: center; gap: 4px;">
+                      <span class="dot" style="background:${p.color}; width:8px; height:8px; margin: 0;"></span>
+                      ${p.name}: <span class="${val >= 0 ? 'positive' : 'negative'}">${vSign} ${Utils.fmtBRL(Math.abs(val))}</span>
+                    </span>`;
+          }).join('');
+          
+          if (peopleInfo) {
+              detailsHtml = `<div style="display:flex; align-items:center; border-right: 1px solid var(--line); padding-right: 12px; margin-right: 12px;">${peopleInfo}</div>`;
+          }
+        }
+
+        html += `
+          <tr class="category-group-row">
+            <td colspan="8" style="padding: 0;">
+              <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; background: var(--surface-sunken); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);">
+                <strong style="color: var(--teal-900); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">${cat}</strong>
+                <div style="display: flex; align-items: center;">
+                  ${detailsHtml}
+                  <span class="num ${colorClass}" style="font-size: 13px; font-weight: 700;">
+                    ${sign} ${formattedTotal}
+                  </span>
+                </div>
+              </div>
+            </td>
+          </tr>`;
         lastCategory = t.category;
       }
       html += rowTransacao(t);
