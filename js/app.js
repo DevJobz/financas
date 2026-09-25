@@ -3218,9 +3218,10 @@ function setCurrentChatId(id) {
   }
 
   function openMonthWrapped(targetKey = null) {
-    // Se não passar o mês, pega o mês anterior ao atual por padrão
+    // CORREÇÃO: Pega o mês ANTERIOR ao que está selecionado na tela (e não do mundo real)
     if (!targetKey) {
-      let d = new Date();
+      const baseMonth = state.dashboardMonthKey || Utils.currentMonthKey();
+      let d = new Date(baseMonth + '-01T12:00:00');
       d.setMonth(d.getMonth() - 1);
       targetKey = d.toISOString().slice(0, 7);
     }
@@ -3241,8 +3242,10 @@ function setCurrentChatId(id) {
     const diffGastos = monthData.gastos - prevMonthData.gastos;
     const pctGastos = prevMonthData.gastos > 0 ? (diffGastos / prevMonthData.gastos) * 100 : 0;
     
-    // Encontrar o maior ralo de dinheiro (ignorando transferências/cartões se houver)
-    const cats = Object.entries(monthData.byCategory || {}).sort((a, b) => b[1] - a[1]);
+    // Encontrar o maior ralo de dinheiro (Filtra apenas categorias que tiveram gastos REAIS > 0)
+    const cats = Object.entries(monthData.byCategory || {})
+      .filter(([cat, val]) => val > 0)
+      .sort((a, b) => b[1] - a[1]);
     const topCat = cats.length > 0 ? cats[0] : null;
 
     // Calcular quem gastou mais
@@ -3279,14 +3282,16 @@ function setCurrentChatId(id) {
         <div class="modal-sheet" style="background: linear-gradient(145deg, var(--teal-900), #083b2e); color: white; border: 1px solid var(--teal-700); max-width: 450px; overflow-y: auto; max-height: 90vh;">
           
           <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.1);">
-            <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 2px; color: var(--teal-300);">Resumo Fechado</div>
+            <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 2px; color: var(--teal-300); font-weight: 700;">
+              Resumo • ${Utils.monthLabel(targetKey)}
+            </div>
             <button class="icon-btn" id="modal-close" style="color: white; background: rgba(255,255,255,0.1);"><i class="ti ti-x"></i></button>
           </div>
 
           <div style="text-align: center; margin: 24px 0;">
             <i class="ti ti-calendar-check" style="font-size: 48px; color: var(--teal-300); margin-bottom: 16px;"></i>
-            <h2 style="font-size: 28px; font-weight: 800; margin-bottom: 8px;">Adeus, ${Utils.monthLabel(targetKey).split(' ')[0]}!</h2>
-            <p style="font-size: 15px; color: var(--teal-100); opacity: 0.9; line-height: 1.5;">Aqui está o resumo do nosso mês.<br>Vamos ver como nos saímos juntos.</p>
+            <h2 style="font-size: 26px; font-weight: 800; margin-bottom: 8px;">Balanço de ${Utils.monthLabel(targetKey).split(' ')[0]}</h2>
+            <p style="font-size: 15px; color: var(--teal-100); opacity: 0.9; line-height: 1.5;">Aqui estão os números oficiais de <strong>${Utils.monthLabel(targetKey)}</strong>.<br>Vamos ver como nos saímos juntos.</p>
           </div>
 
           <div style="background: rgba(0,0,0,0.2); border-radius: 12px; padding: 16px; margin-bottom: 16px;">
@@ -3328,7 +3333,7 @@ function setCurrentChatId(id) {
             <div style="font-size: 32px;">🏆</div>
             <div>
               <div style="font-size: 12px; color: var(--teal-200);">Top Spender (Quem gastou mais)</div>
-              <div style="font-size: 15px; font-weight: 600;">${topSpender.name} com ${Utils.fmtBRL(topSpender.val)}</div>
+              <div style="font-size: 15px; font-weight: 600;">${topSpender.val > 0 ? `${topSpender.name} com${Utils.fmtBRL(topSpender.val)}` : 'Nenhum gasto este mês.'}</div>
             </div>
           </div>
 
