@@ -947,6 +947,29 @@ const App = (() => {
       saldoRest = pm.saldoRestante;
     }
 
+    // --- NOVO: CÁLCULO DO FLUXO DE CAIXA FUTURO (MARGEM LIVRE) ---
+    let items = currentMonth.items || [];
+    if (state.dashFilterPerson !== 'todos') {
+      items = items.filter(t => t.paidBy === state.dashFilterPerson);
+    }
+
+    let recOk = 0, recPend = 0, gasOk = 0, gasPend = 0;
+    items.forEach(t => {
+      if (t.type === 'receita') {
+        if (t.status === 'ok' && !t.isVirtual) recOk += t.amount;
+        else recPend += t.amount;
+      } else {
+        if (t.status === 'ok' && !t.isVirtual) gasOk += t.amount;
+        else gasPend += t.amount;
+      }
+    });
+
+    const saldoRealHoje = saldoAnt + recOk - gasOk;
+    const aPagar = gasPend;
+    const aReceber = recPend;
+    const margemLivre = saldoRealHoje + aReceber - aPagar;
+    // -------------------------------------------------------------
+
     return `
       <section class="view-header" style="justify-content: center; text-align: center; flex-direction: column;">
         <h1 style="font-size: 20px; color: var(--ink-faint);">Visão Geral</h1>
@@ -1009,6 +1032,44 @@ const App = (() => {
           <span class="metric-label">Saldo Restante (Disponível)</span>
           <span class="metric-value">${Utils.fmtBRL(saldoRest)}</span>
           <span class="muted-small" style="font-size: 11px; margin-top: 2px;">Entradas − Despesas</span>
+        </div>
+      </section>
+
+      <!-- NOVO: PROJEÇÃO DE CAIXA (FLUXO FUTURO) -->
+      <section class="card" style="border: 1px solid var(--teal-300); box-shadow: 0 4px 12px rgba(15, 110, 86, 0.05); margin-bottom: 24px;">
+        <div class="card-header" style="margin-bottom: 4px;">
+          <h2 style="color: var(--teal-900);"><i class="ti ti-wallet"></i> Projeção de Margem Livre</h2>
+        </div>
+        <p class="muted-small" style="margin-bottom: 16px;">O dinheiro que você tem na conta <strong>hoje</strong> versus o que já está comprometido e pendente até o final do mês.</p>
+        
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; background: var(--surface-sunken); padding: 16px; border-radius: var(--radius-sm); border: 1px dashed var(--line);">
+          
+          <div style="flex: 1; min-width: 110px;">
+            <span class="muted-small" style="font-size: 10px; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px;">Na Conta (Hoje)</span>
+            <div style="font-size: 18px; font-weight: 800; color: ${saldoRealHoje >= 0 ? 'var(--teal-700)' : 'var(--coral-700)'};">${Utils.fmtBRL(saldoRealHoje)}</div>
+          </div>
+          
+          <i class="ti ti-plus muted-small" style="font-size: 16px; opacity: 0.5;"></i>
+          
+          <div style="flex: 1; min-width: 100px;">
+            <span class="muted-small" style="font-size: 10px; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px;">A Receber</span>
+            <div style="font-size: 16px; font-weight: 600; color: var(--teal-600);">${Utils.fmtBRL(aReceber)}</div>
+          </div>
+          
+          <i class="ti ti-minus muted-small" style="font-size: 16px; opacity: 0.5;"></i>
+          
+          <div style="flex: 1; min-width: 100px;">
+            <span class="muted-small" style="font-size: 10px; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px;">A Pagar</span>
+            <div style="font-size: 16px; font-weight: 600; color: var(--coral-600);">${Utils.fmtBRL(aPagar)}</div>
+          </div>
+          
+          <i class="ti ti-equal muted-small" style="font-size: 16px; opacity: 0.5;"></i>
+          
+          <div style="flex: 1; min-width: 130px; background: ${margemLivre >= 0 ? 'var(--teal-100)' : 'var(--coral-100)'}; padding: 10px 14px; border-radius: 8px; border: 1px solid ${margemLivre >= 0 ? 'var(--teal-400)' : 'var(--coral-400)'}; text-align: right; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);">
+            <span style="font-size: 11px; font-weight: 800; color: ${margemLivre >= 0 ? 'var(--teal-900)' : 'var(--coral-900)'}; text-transform: uppercase; letter-spacing: 0.5px;">Margem Livre</span>
+            <div style="font-size: 20px; font-weight: 900; color: ${margemLivre >= 0 ? 'var(--teal-800)' : 'var(--coral-800)'};">${Utils.fmtBRL(margemLivre)}</div>
+          </div>
+          
         </div>
       </section>
 
