@@ -17,6 +17,22 @@ const App = (() => {
     editingId: null,
   };
 
+  // --- PREFERÊNCIAS VISUAIS (Salvas no navegador) ---
+  let uiPrefs = JSON.parse(localStorage.getItem('financas_ui_prefs')) || {
+    banner: true,    // true = visível
+    focus: false,    // true = modo foco ativado
+    cards: {}        // guarda os cards minimizados, ex: { 'cartoes': true } = minimizado
+  };
+
+  function toggleUiPref(type, key) {
+    if (type === 'banner') uiPrefs.banner = !uiPrefs.banner;
+    if (type === 'focus') uiPrefs.focus = !uiPrefs.focus;
+    if (type === 'card') uiPrefs.cards[key] = !uiPrefs.cards[key];
+    
+    localStorage.setItem('financas_ui_prefs', JSON.stringify(uiPrefs));
+    renderView(true); // Recarrega a tela silenciosamente aplicando a nova UI
+  }
+
   function el(sel, root = document) { return root.querySelector(sel); }
   function els(sel, root = document) { return Array.from(root.querySelectorAll(sel)); }
 
@@ -913,64 +929,64 @@ const App = (() => {
     let currentIdx = state.months.findIndex((m) => m.key === state.dashboardMonthKey);
     
     const currentMonth = currentIdx !== -1 ? state.months[currentIdx] : { 
-      key: state.dashboardMonthKey, 
-      receitas: 0, 
-      gastos: 0, 
-      saldoInicial: 0,
-      entradasTotais: 0,
-      despesasTotais: 0,
-      saldoRestante: 0,
-      personMetrics: {},
-      saldoMes: 0, 
-      saldoFinal: 0, 
-      byPerson: {}, 
-      byPersonRenda: {}, 
-      byPersonCard: {}, 
-      byCategoryPerson: {} 
+      key: state.dashboardMonthKey, receitas: 0, gastos: 0, saldoInicial: 0, entradasTotais: 0, despesasTotais: 0,
+      saldoRestante: 0, personMetrics: {}, saldoMes: 0, saldoFinal: 0, byPerson: {}, byPersonRenda: {}, byPersonCard: {}, byCategoryPerson: {} 
     };
 
     const cardsUsage = Utils.getCardsUsage(state.transactions, state.dashboardMonthKey, state.settings);
 
     let saldoAnt, recMes, entTotais, despTotais, saldoRest;
     if (state.dashFilterPerson === 'todos' || !currentMonth.personMetrics[state.dashFilterPerson]) {
-      saldoAnt = currentMonth.saldoInicial;
-      recMes = currentMonth.receitas;
-      entTotais = currentMonth.entradasTotais;
-      despTotais = currentMonth.despesasTotais;
-      saldoRest = currentMonth.saldoRestante;
+      saldoAnt = currentMonth.saldoInicial; recMes = currentMonth.receitas;
+      entTotais = currentMonth.entradasTotais; despTotais = currentMonth.despesasTotais; saldoRest = currentMonth.saldoRestante;
     } else {
       const pm = currentMonth.personMetrics[state.dashFilterPerson];
-      saldoAnt = pm.saldoInicial;
-      recMes = pm.receitas;
-      entTotais = pm.entradasTotais;
-      despTotais = pm.despesasTotais;
-      saldoRest = pm.saldoRestante;
+      saldoAnt = pm.saldoInicial; recMes = pm.receitas;
+      entTotais = pm.entradasTotais; despTotais = pm.despesasTotais; saldoRest = pm.saldoRestante;
     }
 
-    // --- NOVO: CÁLCULO DO FLUXO DE CAIXA FUTURO (MARGEM LIVRE) ---
+    // --- CÁLCULO DO FLUXO DE CAIXA FUTURO (MARGEM LIVRE) ---
     let items = currentMonth.items || [];
-    if (state.dashFilterPerson !== 'todos') {
-      items = items.filter(t => t.paidBy === state.dashFilterPerson);
-    }
+    if (state.dashFilterPerson !== 'todos') items = items.filter(t => t.paidBy === state.dashFilterPerson);
 
     let recOk = 0, recPend = 0, gasOk = 0, gasPend = 0;
     items.forEach(t => {
-      if (t.type === 'receita') {
-        if (t.status === 'ok' && !t.isVirtual) recOk += t.amount;
-        else recPend += t.amount;
-      } else {
-        if (t.status === 'ok' && !t.isVirtual) gasOk += t.amount;
-        else gasPend += t.amount;
-      }
+      if (t.type === 'receita') { if (t.status === 'ok' && !t.isVirtual) recOk += t.amount; else recPend += t.amount; } 
+      else { if (t.status === 'ok' && !t.isVirtual) gasOk += t.amount; else gasPend += t.amount; }
     });
 
     const saldoRealHoje = saldoAnt + recOk - gasOk;
     const aPagar = gasPend;
     const aReceber = recPend;
     const margemLivre = saldoRealHoje + aReceber - aPagar;
-    // -------------------------------------------------------------
 
+    // --- RENDERIZAÇÃO DO HTML ---
     return `
+      <!-- 1. LETREIRO DA IA NO TOPO (Pode ser Oculto) -->
+      ${uiPrefs.banner ? `
+        <section style="margin-bottom: 24px; background: linear-gradient(90deg, var(--teal-100) 0%, transparent 100%); border: 1px solid var(--teal-200); border-radius: var(--radius-sm); padding: 12px 16px; display: flex; align-items: center; gap: 12px; overflow: hidden; position: relative; box-shadow: 0 4px 12px rgba(15, 110, 86, 0.05);">
+          <div style="display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; background: var(--teal-500); color: white; border-radius: 50%; flex-shrink: 0;">
+            <i class="ti ti-sparkles" style="font-size: 20px; animation: pulse 2s infinite;"></i>
+          </div>
+          <div style="flex: 1; min-width: 0;">
+            <div style="font-size: 11px; font-weight: 700; color: var(--teal-900); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px;">IA Financeira</div>
+            <div id="ai-alert-text" style="font-size: 13px; color: var(--ink); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: opacity 0.5s ease; opacity: 0;">
+              Analisando seus dados...
+            </div>
+          </div>
+          <button class="icon-btn" onclick="App.toggleUiPref('banner')" style="color: var(--teal-700); background: rgba(255,255,255,0.6);" title="Ocultar Dicas da IA">
+            <i class="ti ti-eye-off"></i>
+          </button>
+          <style>@keyframes pulse { 0% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.1); opacity: 0.8; } 100% { transform: scale(1); opacity: 1; } }</style>
+        </section>
+      ` : `
+        <section onclick="App.toggleUiPref('banner')" style="margin-bottom: 24px; cursor: pointer; background: var(--surface-sunken); border: 1px dashed var(--line); border-radius: var(--radius-sm); padding: 8px 16px; display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--ink-faint); transition: all 0.2s;">
+          <i class="ti ti-sparkles" style="color: var(--teal-500);"></i>
+          <span style="font-size: 12px; font-weight: 600;">IA Financeira Oculta (Clique para expandir)</span>
+        </section>
+      `}
+
+      <!-- 2. CABEÇALHO E CONTROLES (Agrupados lado a lado) -->
       <section class="view-header" style="justify-content: center; text-align: center; flex-direction: column;">
         <h1 style="font-size: 20px; color: var(--ink-faint);">Visão Geral</h1>
         <div style="display: flex; align-items: center; gap: 16px; margin-top: 8px;">
@@ -979,49 +995,29 @@ const App = (() => {
           <button class="icon-btn" data-dash-nav="1" style="background: var(--surface-sunken);"><i class="ti ti-chevron-right"></i></button>
         </div>
         
-        <div style="margin-top: 14px;">
-          <select id="dash-filter-person" onchange="App.setDashPerson(this.value)" style="height: 38px; font-size: 13px; padding: 0 14px; border-radius: 999px; background: var(--surface); border: 1.5px solid var(--line); font-weight: 600;">
+        <!-- Barra de Ferramentas -->
+        <div style="display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 10px; margin-top: 16px; margin-bottom: 8px;">
+          <select id="dash-filter-person" onchange="App.setDashPerson(this.value)" style="height: 36px; font-size: 13px; padding: 0 14px; border-radius: 999px; background: var(--surface); border: 1.5px solid var(--line); font-weight: 600;">
             <option value="todos" ${state.dashFilterPerson === 'todos' ? 'selected' : ''}>Métricas: Casal (Todos)</option>
             ${getPeople().map(p => `<option value="${p.id}" ${state.dashFilterPerson === p.id ? 'selected' : ''}>Métricas: ${p.name}</option>`).join('')}
           </select>
+          
+          <button class="btn btn-ghost" onclick="App.openMonthWrapped()" style="height: 36px; border-radius: 999px; border: 1px dashed var(--teal-400); color: var(--teal-900); padding: 0 16px; font-size: 13px;">
+            <i class="ti ti-gift" style="color: var(--coral-600); font-size: 16px; margin-right: 4px;"></i> Resumo
+          </button>
+
+          <button class="btn ${uiPrefs.focus ? 'btn-primary' : 'btn-ghost'}" onclick="App.toggleUiPref('focus')" style="height: 36px; border-radius: 999px; padding: 0 16px; font-size: 13px; ${!uiPrefs.focus ? 'background: var(--surface-sunken); border: 1.5px solid var(--line);' : ''}">
+            <i class="ti ${uiPrefs.focus ? 'ti-focus-centered' : 'ti-focus'}"></i> ${uiPrefs.focus ? 'Sair do Foco' : 'Foco'}
+          </button>
         </div>
       </section>
 
-      <!-- NOVO: OUTDOOR DE INSIGHTS DA IA -->
-      <section style="margin: 0 0 16px 0; background: linear-gradient(90deg, var(--teal-100) 0%, transparent 100%); border: 1px solid var(--teal-200); border-radius: var(--radius-sm); padding: 12px 16px; display: flex; align-items: center; gap: 12px; overflow: hidden; position: relative;">
-        <div style="display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; background: var(--teal-500); color: white; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 10px rgba(15, 110, 86, 0.3);">
-          <i class="ti ti-sparkles" style="font-size: 20px; animation: pulse 2s infinite;"></i>
-        </div>
-        <div style="flex: 1; min-width: 0;">
-          <div style="font-size: 11px; font-weight: 700; color: var(--teal-900); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px;">IA Financeira</div>
-          <div id="ai-alert-text" style="font-size: 13px; color: var(--ink); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: opacity 0.5s ease; opacity: 0;">
-            Analisando seus dados...
-          </div>
-        </div>
-        <style>
-          @keyframes pulse {
-            0% { transform: scale(1); opacity: 1; }
-            50% { transform: scale(1.1); opacity: 0.8; }
-            100% { transform: scale(1); opacity: 1; }
-          }
-        </style>
-      </section>
-
-      <!-- BOTÃO MANUAL DO RESUMO (WRAPPED) -->
-      <div style="text-align: center; margin-bottom: 16px;">
-        <button class="btn btn-ghost" onclick="App.openMonthWrapped()" style="background: var(--surface-sunken); border: 1px dashed var(--teal-400); color: var(--teal-900); border-radius: 999px; padding: 6px 16px; font-size: 13px;">
-          <i class="ti ti-gift" style="color: var(--coral-600); font-size: 16px; margin-right: 4px;"></i> Ver Resumo Fechado do Mês Passado
-        </button>
-      </div>
-
-      <!-- 3 CARDS ESTILO PLANILHA: ENTRADAS TOTAIS | DESPESAS | SALDO RESTANTE -->
+      <!-- 3. CARDS PRINCIPAIS (Sempre Visíveis) -->
       <section class="metrics-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
         <div class="metric-card positive">
           <span class="metric-label">Total de Entradas (Mês + Acumulado)</span>
           <span class="metric-value">${Utils.fmtBRL(entTotais)}</span>
-          <span class="muted-small" style="font-size: 11px; margin-top: 2px;">
-            Saldo Anterior: ${Utils.fmtBRL(saldoAnt)} + Receitas: ${Utils.fmtBRL(recMes)}
-          </span>
+          <span class="muted-small" style="font-size: 11px; margin-top: 2px;">Saldo Anterior: ${Utils.fmtBRL(saldoAnt)} + Receitas: ${Utils.fmtBRL(recMes)}</span>
         </div>
         <div class="metric-card negative">
           <span class="metric-label">Total de Despesas (Saídas)</span>
@@ -1035,140 +1031,132 @@ const App = (() => {
         </div>
       </section>
 
-      <!-- NOVO: PROJEÇÃO DE CAIXA (FLUXO FUTURO) -->
-      <section class="card" style="border: 1px solid var(--teal-300); box-shadow: 0 4px 12px rgba(15, 110, 86, 0.05); margin-bottom: 24px;">
-        <div class="card-header" style="margin-bottom: 4px;">
+      <!-- O RESTANTE DOS CARDS (Ocultos se "Modo Foco" estiver ativo) -->
+      ${uiPrefs.focus ? '' : `
+      
+      <section class="card" style="border: 1px solid var(--teal-300); box-shadow: 0 4px 12px rgba(15, 110, 86, 0.05);">
+        <div class="card-header" style="margin-bottom: 4px; justify-content: space-between; cursor: pointer; user-select: none;" onclick="App.toggleUiPref('card', 'projecao')">
           <h2 style="color: var(--teal-900);"><i class="ti ti-wallet"></i> Projeção de Margem Livre</h2>
+          <button class="icon-btn" style="pointer-events: none;"><i class="ti ${uiPrefs.cards['projecao'] ? 'ti-chevron-down' : 'ti-chevron-up'}"></i></button>
         </div>
-        <p class="muted-small" style="margin-bottom: 16px;">O dinheiro que você tem na conta <strong>hoje</strong> versus o que já está comprometido e pendente até o final do mês.</p>
-        
-        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; background: var(--surface-sunken); padding: 16px; border-radius: var(--radius-sm); border: 1px dashed var(--line);">
-          
-          <div style="flex: 1; min-width: 110px;">
-            <span class="muted-small" style="font-size: 10px; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px;">Na Conta (Hoje)</span>
-            <div style="font-size: 18px; font-weight: 800; color: ${saldoRealHoje >= 0 ? 'var(--teal-700)' : 'var(--coral-700)'};">${Utils.fmtBRL(saldoRealHoje)}</div>
-          </div>
-          
-          <i class="ti ti-plus muted-small" style="font-size: 16px; opacity: 0.5;"></i>
-          
-          <div style="flex: 1; min-width: 100px;">
-            <span class="muted-small" style="font-size: 10px; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px;">A Receber</span>
-            <div style="font-size: 16px; font-weight: 600; color: var(--teal-600);">${Utils.fmtBRL(aReceber)}</div>
-          </div>
-          
-          <i class="ti ti-minus muted-small" style="font-size: 16px; opacity: 0.5;"></i>
-          
-          <div style="flex: 1; min-width: 100px;">
-            <span class="muted-small" style="font-size: 10px; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px;">A Pagar</span>
-            <div style="font-size: 16px; font-weight: 600; color: var(--coral-600);">${Utils.fmtBRL(aPagar)}</div>
-          </div>
-          
-          <i class="ti ti-equal muted-small" style="font-size: 16px; opacity: 0.5;"></i>
-          
-          <div style="flex: 1; min-width: 130px; background: ${margemLivre >= 0 ? 'var(--teal-100)' : 'var(--coral-100)'}; padding: 10px 14px; border-radius: 8px; border: 1px solid ${margemLivre >= 0 ? 'var(--teal-400)' : 'var(--coral-400)'}; text-align: right; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);">
-            <span style="font-size: 11px; font-weight: 800; color: ${margemLivre >= 0 ? 'var(--teal-900)' : 'var(--coral-900)'}; text-transform: uppercase; letter-spacing: 0.5px;">Margem Livre</span>
-            <div style="font-size: 20px; font-weight: 900; color: ${margemLivre >= 0 ? 'var(--teal-800)' : 'var(--coral-800)'};">${Utils.fmtBRL(margemLivre)}</div>
-          </div>
-          
-        </div>
-      </section>
-
-      <!-- FEEDBACK VISUAL DOS CARTÕES DE CRÉDITO -->
-      <section class="card">
-        <div class="card-header">
-          <h2><i class="ti ti-credit-card"></i> Cartões de Crédito (Limite Retido vs. Disponível)</h2>
-        </div>
-        ${cardsUsage.length > 0 ? `
-        <div style="display: flex; flex-direction: column; gap: 16px;">
-          ${cardsUsage.map(c => `
-            <div style="border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 14px;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                <div>
-                  <strong style="font-size: 15px; color: var(--teal-900);">${c.name}</strong>
-                  <span class="user-chip" style="--chip-color:${personColor(c.owner)}; margin-left: 8px; font-size: 11px; padding: 2px 8px;">${personName(c.owner)}</span>
-                </div>
-                <span class="muted-small">Limite Total: <strong>${Utils.fmtBRL(c.limit)}</strong></span>
-              </div>
-              
-              <div class="progress-bar">
-                <div class="progress-fill ${c.pct >= 90 ? 'danger' : c.pct >= 70 ? 'warning' : ''}" style="width: ${c.pct}%"></div>
-              </div>
-              
-              <div class="progress-legend" style="margin-top: 8px; font-size: 13px;">
-                <span style="color: var(--coral-700);">Retido / Usado: <strong>${Utils.fmtBRL(c.used)}</strong> (${c.pct}%)</span>
-                <span style="color: var(--teal-700);">Disponível: <strong>${Utils.fmtBRL(c.available)}</strong></span>
-              </div>
+        <div style="display: ${uiPrefs.cards['projecao'] ? 'none' : 'block'}; margin-top: 8px;">
+          <p class="muted-small" style="margin-bottom: 16px;">O dinheiro que você tem na conta <strong>hoje</strong> versus o que já está comprometido e pendente até o final do mês.</p>
+          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; background: var(--surface-sunken); padding: 16px; border-radius: var(--radius-sm); border: 1px dashed var(--line);">
+            <div style="flex: 1; min-width: 110px;">
+              <span class="muted-small" style="font-size: 10px; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px;">Na Conta (Hoje)</span>
+              <div style="font-size: 18px; font-weight: 800; color: ${saldoRealHoje >= 0 ? 'var(--teal-700)' : 'var(--coral-700)'};">${Utils.fmtBRL(saldoRealHoje)}</div>
             </div>
-          `).join('')}
-        </div>
-        ` : `<p class="muted-small">Nenhum cartão de crédito cadastrado na aba Ajustes ainda.</p>`}
-      </section>
-
-      <!-- DESEMPENHO INDIVIDUAL -->
-      <section class="card">
-        <div class="card-header"><h2><i class="ti ti-users"></i> Desempenho Individual</h2></div>
-        
-        ${currentMonth.receitas > 0 ? `
-        <div style="margin-bottom: 20px;">
-          <p class="muted-small" style="margin-bottom: 6px;">Proporção da Renda Conjunta neste mês:</p>
-          <div style="display: flex; height: 12px; border-radius: 999px; overflow: hidden; background: var(--surface-sunken);">
-            ${getPeople().map(p => {
-              const val = currentMonth.byPersonRenda[p.id] || 0;
-              const pct = (val / currentMonth.receitas) * 100;
-              return pct > 0 ? `<div style="width: ${pct}%; background: ${p.color};" title="${p.name}: ${pct.toFixed(1)}%"></div>` : '';
-            }).join('')}
+            <i class="ti ti-plus muted-small" style="font-size: 16px; opacity: 0.5;"></i>
+            <div style="flex: 1; min-width: 100px;">
+              <span class="muted-small" style="font-size: 10px; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px;">A Receber</span>
+              <div style="font-size: 16px; font-weight: 600; color: var(--teal-600);">${Utils.fmtBRL(aReceber)}</div>
+            </div>
+            <i class="ti ti-minus muted-small" style="font-size: 16px; opacity: 0.5;"></i>
+            <div style="flex: 1; min-width: 100px;">
+              <span class="muted-small" style="font-size: 10px; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px;">A Pagar</span>
+              <div style="font-size: 16px; font-weight: 600; color: var(--coral-600);">${Utils.fmtBRL(aPagar)}</div>
+            </div>
+            <i class="ti ti-equal muted-small" style="font-size: 16px; opacity: 0.5;"></i>
+            <div style="flex: 1; min-width: 130px; background: ${margemLivre >= 0 ? 'var(--teal-100)' : 'var(--coral-100)'}; padding: 10px 14px; border-radius: 8px; border: 1px solid${margemLivre >= 0 ? 'var(--teal-400)' : 'var(--coral-400)'}; text-align: right; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);">
+              <span style="font-size: 11px; font-weight: 800; color: ${margemLivre >= 0 ? 'var(--teal-900)' : 'var(--coral-900)'}; text-transform: uppercase; letter-spacing: 0.5px;">Margem Livre</span>
+              <div style="font-size: 20px; font-weight: 900; color: ${margemLivre >= 0 ? 'var(--teal-800)' : 'var(--coral-800)'};">${Utils.fmtBRL(margemLivre)}</div>
+            </div>
           </div>
-        </div>` : ''}
-
-        <div class="grid-2">
-          ${getPeople().map(p => {
-            const myCats = (currentMonth.byCategoryPerson && currentMonth.byCategoryPerson[p.id]) || {};
-            const catHtml = Object.entries(myCats).sort((a,b) => b[1]-a[1]).map(([c, v]) => `
-              <div style="display:flex; justify-content:space-between; font-size: 13px; padding: 4px 0; border-bottom: 1px dashed var(--line);">
-                <span class="muted-small">${c}</span> <strong>${Utils.fmtBRL(v)}</strong>
-              </div>
-            `).join('');
-
-            return `
-            <details class="person-details" style="border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px 16px;">
-              <summary style="cursor: pointer; outline: none; display: flex; justify-content: space-between; align-items: center; font-weight: 600; color: ${p.color};">
-                ${p.name}
-                <i class="ti ti-chevron-down muted-small"></i>
-              </summary>
-              <div style="margin-top: 12px;">
-                <p style="display:flex; justify-content: space-between; font-size: 14px; margin-bottom: 6px;">
-                  <span class="muted-small">Gasto Total:</span> <strong>${Utils.fmtBRL(currentMonth.byPerson[p.id] || 0)}</strong>
-                </p>
-                <p style="display:flex; justify-content: space-between; font-size: 14px; margin-bottom: 16px;">
-                  <span class="muted-small">Fatura Cartões:</span> <strong>${Utils.fmtBRL(currentMonth.byPersonCard[p.id] || 0)}</strong>
-                </p>
-                <p class="muted-small" style="text-transform: uppercase; font-size: 11px; font-weight: bold; margin-bottom: 4px;">Top Gastos</p>
-                ${catHtml || '<p class="muted-small" style="font-size:12px;">Nenhum gasto registrado.</p>'}
-              </div>
-            </details>
-          `}).join('')}
         </div>
       </section>
 
-      <!-- DOIS GRÁFICOS LADO A LADO -->
+      <section class="card">
+        <div class="card-header" style="justify-content: space-between; cursor: pointer; user-select: none;" onclick="App.toggleUiPref('card', 'cartoes')">
+          <h2><i class="ti ti-credit-card"></i> Cartões de Crédito (Retido x Livre)</h2>
+          <button class="icon-btn" style="pointer-events: none;"><i class="ti ${uiPrefs.cards['cartoes'] ? 'ti-chevron-down' : 'ti-chevron-up'}"></i></button>
+        </div>
+        <div style="display: ${uiPrefs.cards['cartoes'] ? 'none' : 'block'}; margin-top: 12px;">
+          ${cardsUsage.length > 0 ? `
+          <div style="display: flex; flex-direction: column; gap: 16px;">
+            ${cardsUsage.map(c => `
+              <div style="border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 14px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                  <div>
+                    <strong style="font-size: 15px; color: var(--teal-900);">${c.name}</strong>
+                    <span class="user-chip" style="--chip-color:${personColor(c.owner)}; margin-left: 8px; font-size: 11px; padding: 2px 8px;">${personName(c.owner)}</span>
+                  </div>
+                  <span class="muted-small">Limite: <strong>${Utils.fmtBRL(c.limit)}</strong></span>
+                </div>
+                <div class="progress-bar"><div class="progress-fill ${c.pct >= 90 ? 'danger' : c.pct >= 70 ? 'warning' : ''}" style="width: ${c.pct}%"></div></div>
+                <div class="progress-legend" style="margin-top: 8px; font-size: 13px;">
+                  <span style="color: var(--coral-700);">Usado: <strong>${Utils.fmtBRL(c.used)}</strong> (${c.pct}%)</span>
+                  <span style="color: var(--teal-700);">Livre: <strong>${Utils.fmtBRL(c.available)}</strong></span>
+                </div>
+              </div>
+            `).join('')}
+          </div>` : `<p class="muted-small">Nenhum cartão cadastrado.</p>`}
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-header" style="justify-content: space-between; cursor: pointer; user-select: none;" onclick="App.toggleUiPref('card', 'desempenho')">
+          <h2><i class="ti ti-users"></i> Desempenho Individual</h2>
+          <button class="icon-btn" style="pointer-events: none;"><i class="ti ${uiPrefs.cards['desempenho'] ? 'ti-chevron-down' : 'ti-chevron-up'}"></i></button>
+        </div>
+        <div style="display: ${uiPrefs.cards['desempenho'] ? 'none' : 'block'}; margin-top: 12px;">
+          ${currentMonth.receitas > 0 ? `
+          <div style="margin-bottom: 20px;">
+            <p class="muted-small" style="margin-bottom: 6px;">Proporção da Renda Conjunta neste mês:</p>
+            <div style="display: flex; height: 12px; border-radius: 999px; overflow: hidden; background: var(--surface-sunken);">
+              ${getPeople().map(p => {
+                const val = currentMonth.byPersonRenda[p.id] || 0; const pct = (val / currentMonth.receitas) * 100;
+                return pct > 0 ? `<div style="width: ${pct}\%; background:${p.color};" title="${p.name}:${pct.toFixed(1)}%"></div>` : '';
+              }).join('')}
+            </div>
+          </div>` : ''}
+          <div class="grid-2">
+            ${getPeople().map(p => {
+              const myCats = (currentMonth.byCategoryPerson && currentMonth.byCategoryPerson[p.id]) || {};
+              const catHtml = Object.entries(myCats).sort((a,b) => b[1]-a[1]).map(([c, v]) => `
+                <div style="display:flex; justify-content:space-between; font-size: 13px; padding: 4px 0; border-bottom: 1px dashed var(--line);"><span class="muted-small">${c}</span> <strong>${Utils.fmtBRL(v)}</strong></div>
+              `).join('');
+              return `
+              <details class="person-details" style="border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px 16px;">
+                <summary style="cursor: pointer; outline: none; display: flex; justify-content: space-between; align-items: center; font-weight: 600; color: ${p.color};">${p.name}<i class="ti ti-chevron-down muted-small"></i></summary>
+                <div style="margin-top: 12px;">
+                  <p style="display:flex; justify-content: space-between; font-size: 14px; margin-bottom: 6px;"><span class="muted-small">Gasto Total:</span> <strong>${Utils.fmtBRL(currentMonth.byPerson[p.id] || 0)}</strong></p>
+                  <p style="display:flex; justify-content: space-between; font-size: 14px; margin-bottom: 16px;"><span class="muted-small">Fatura Cartões:</span> <strong>${Utils.fmtBRL(currentMonth.byPersonCard[p.id] || 0)}</strong></p>
+                  <p class="muted-small" style="text-transform: uppercase; font-size: 11px; font-weight: bold; margin-bottom: 4px;">Top Gastos</p>
+                  ${catHtml || '<p class="muted-small" style="font-size:12px;">Nenhum gasto.</p>'}
+                </div>
+              </details>`}).join('')}
+          </div>
+        </div>
+      </section>
+
       <section class="grid-2">
         <div class="card">
-          <div class="card-header"><h2><i class="ti ti-chart-donut"></i> Gastos por Categoria (Geral)</h2></div>
-          <div class="chart-box"><canvas id="chart-categoria"></canvas></div>
+          <div class="card-header" style="justify-content: space-between; cursor: pointer; user-select: none;" onclick="App.toggleUiPref('card', 'grafico_cat')">
+            <h2><i class="ti ti-chart-donut"></i> Por Categoria</h2>
+            <button class="icon-btn" style="pointer-events: none;"><i class="ti ${uiPrefs.cards['grafico_cat'] ? 'ti-chevron-down' : 'ti-chevron-up'}"></i></button>
+          </div>
+          <div class="chart-box" style="display: ${uiPrefs.cards['grafico_cat'] ? 'none' : 'block'};"><canvas id="chart-categoria"></canvas></div>
         </div>
         <div class="card">
-          <div class="card-header"><h2><i class="ti ti-users"></i> Gastos por Pessoa (Comparativo)</h2></div>
-          <div class="chart-box"><canvas id="chart-pessoa"></canvas></div>
+          <div class="card-header" style="justify-content: space-between; cursor: pointer; user-select: none;" onclick="App.toggleUiPref('card', 'grafico_pes')">
+            <h2><i class="ti ti-users"></i> Comparativo Pessoas</h2>
+            <button class="icon-btn" style="pointer-events: none;"><i class="ti ${uiPrefs.cards['grafico_pes'] ? 'ti-chevron-down' : 'ti-chevron-up'}"></i></button>
+          </div>
+          <div class="chart-box" style="display: ${uiPrefs.cards['grafico_pes'] ? 'none' : 'block'};"><canvas id="chart-pessoa"></canvas></div>
         </div>
       </section>
 
       <section class="card">
-        <div class="card-header">
-          <h2><i class="ti ti-chart-bar"></i> Evolução: Receitas x Gastos</h2>
-          <span class="muted-small">Últimos 6 meses até ${Utils.monthLabel(state.dashboardMonthKey)}</span>
+        <div class="card-header" style="justify-content: space-between; cursor: pointer; user-select: none;" onclick="App.toggleUiPref('card', 'grafico_evo')">
+          <div>
+            <h2><i class="ti ti-chart-bar"></i> Evolução Mensal</h2>
+            <span class="muted-small" style="font-weight: 400; font-size: 11px;">Receitas x Gastos (Últimos 6 meses)</span>
+          </div>
+          <button class="icon-btn" style="pointer-events: none;"><i class="ti ${uiPrefs.cards['grafico_evo'] ? 'ti-chevron-down' : 'ti-chevron-up'}"></i></button>
         </div>
-        <div class="chart-box"><canvas id="chart-receitas-gastos"></canvas></div>
+        <div class="chart-box" style="display: ${uiPrefs.cards['grafico_evo'] ? 'none' : 'block'};"><canvas id="chart-receitas-gastos"></canvas></div>
       </section>
+      `}
     `;
   }
 
@@ -3435,7 +3423,8 @@ function setCurrentChatId(id) {
     deleteTripPlace,
     openGoalModal,
     openSubModal,
-    openMonthWrapped // ADICIONE ESTA LINHA AQUI
+    openMonthWrapped,
+    toggleUiPref // ADICIONE ESTA LINHA AQUI PARA OS BOTÕES FUNCIONAREM
   };
 })();
 
