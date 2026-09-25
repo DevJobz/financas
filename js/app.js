@@ -56,10 +56,18 @@ const App = (() => {
   }
 
   async function loadData() {
-    const [transactions, settings, records] = await Promise.all([Api.getTransactions(), Api.getSettings(), Api.getRecords()]);
+    // Adicionamos o getAudit() no Promise.all para carregar simultaneamente
+    const [transactions, settings, records, audit] = await Promise.all([
+      Api.getTransactions(), 
+      Api.getSettings(), 
+      Api.getRecords(),
+      Api.getAudit().catch(() => []) // O catch evita que a tela trave se o histórico estiver vazio
+    ]);
+    
     state.transactions = transactions.sort((a, b) => a.date.localeCompare(b.date));
     state.settings = settings;
-    state.records = records || []; // Carrega o novo banco
+    state.records = records || []; 
+    state.audit = audit || []; // NOVO: Guardamos o histórico no estado global para o banner ler
     state.months = Utils.buildMonthlySummary(state.transactions, state.settings);
   }
 
@@ -953,6 +961,26 @@ const App = (() => {
         </div>
       </section>
 
+      <!-- NOVO: OUTDOOR DE INSIGHTS DA IA -->
+      <section style="margin: 0 0 16px 0; background: linear-gradient(90deg, var(--teal-100) 0%, transparent 100%); border: 1px solid var(--teal-200); border-radius: var(--radius-sm); padding: 12px 16px; display: flex; align-items: center; gap: 12px; overflow: hidden; position: relative;">
+        <div style="display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; background: var(--teal-500); color: white; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 10px rgba(15, 110, 86, 0.3);">
+          <i class="ti ti-sparkles" style="font-size: 20px; animation: pulse 2s infinite;"></i>
+        </div>
+        <div style="flex: 1; min-width: 0;">
+          <div style="font-size: 11px; font-weight: 700; color: var(--teal-900); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px;">IA Financeira</div>
+          <div id="ai-alert-text" style="font-size: 13px; color: var(--ink); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: opacity 0.5s ease; opacity: 0;">
+            Analisando seus dados...
+          </div>
+        </div>
+        <style>
+          @keyframes pulse {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.1); opacity: 0.8; }
+            100% { transform: scale(1); opacity: 1; }
+          }
+        </style>
+      </section>
+
       <!-- 3 CARDS ESTILO PLANILHA: ENTRADAS TOTAIS | DESPESAS | SALDO RESTANTE -->
       <section class="metrics-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
         <div class="metric-card positive">
@@ -1092,6 +1120,9 @@ const App = (() => {
     Charts.incomeExpenseChart('chart-receitas-gastos', visibleMonths);
     Charts.categoryChart('chart-categoria', currentMonth.byCategory || {});
     Charts.personChart('chart-pessoa', currentMonth.byPerson || {}, getPeople());
+
+    // INICIA O CARROSSEL DE ALERTAS DA IA
+    startAlertCarousel();
   }
 
   // ---------- LANÇAMENTOS ----------
@@ -3035,6 +3066,125 @@ function setCurrentChatId(id) {
       div.innerHTML = html;
       const container = el('#chat-messages');
       container.scrollTop = container.scrollHeight;
+    }
+  }
+
+  // ---------- IA PREDITIVA (OUTDOOR DE INSIGHTS) ----------
+  let alertInterval = null;
+
+  function generatePredictiveAlerts() {
+    const alerts = [];
+    const currKey = state.dashboardMonthKey || Utils.currentMonthKey();
+    const currMonth = state.months.find(m => m.key === currKey);
+    
+    if (!currMonth) return ['✨ Mantenha seus registros atualizados para ver insights inteligentes da IA.'];
+
+    // 1. Cartões de Crédito (Alerta de limite)
+    const cards = Utils.getCardsUsage(state.transactions, currKey, state.settings);
+    cards.forEach(c => {
+      if (c.pct >= 85 && c.pct < 100) {
+        alerts.push(`⚠️ Atenção: O cartão ${c.name} já comprometeu ${c.pct}% do limite. Cuidado com novas compras!`);
+      } else if (c.pct >= 100) {
+        alerts.push(`🚨 Alerta Vermelho: O cartão ${c.name} estourou o limite! (${Utils.fmtBRL(c.used)} usados).`);
+      }
+    });
+
+    // 2. Comparativo de Ritmo (Mês Atual vs Mês Passado)
+    let prevDate = new Date(currKey + '-01T12:00:00');
+    prevDate.setMonth(prevDate.getMonth() - 1);
+    const prevMonth = state.months.find(m => m.key === prevDate.toISOString().slice(0, 7));
+
+    if (prevMonth && currMonth.gastos > 0) {
+      if (currMonth.gastos > prevMonth.gastos) {
+         const diff = currMonth.gastos - prevMonth.gastos;
+         alerts.push(`📉 Ritmo acelerado: Vocês já gastaram ${Utils.fmtBRL(diff)} a mais do que no mês passado inteiro.`);
+      } else {
+         const today = new Date().getDate();
+         const pct = ((prevMonth.gastos - currMonth.gastos) / prevMonth.gastos) * 100;
+         if (pct > 15 && today > 20) {
+           alerts.push(`💡 Ótimo ritmo! Passamos do dia 20 e vocês gastaram ${pct.toFixed(0)}% a menos que no mês passado.`);
+         }
+      }
+    }
+
+    // 3. Saúde do Saldo
+    if (currMonth.saldoRestante < 0) {
+      alerts.push(`🚨 O caixa deste mês está negativo em ${Utils.fmtBRL(Math.abs(currMonth.saldoRestante))}. O que podemos cortar?`);
+    } else if (currMonth.saldoRestante > 0 && currMonth.saldoRestante < 150) {
+      alerts.push(`⚠️ O saldo livre está em apenas ${Utils.fmtBRL(currMonth.saldoRestante)}. Segurem os gastos não essenciais!`);
+    }
+
+    // 4. Metas do Casal (Life Hub)
+    if (state.records) {
+      const goals = state.records.filter(r => r.type === 'goal');
+      goals.forEach(g => {
+        const progress = (g.saved / g.target) * 100;
+        if (progress >= 75 && progress < 100) {
+          alerts.push(`🎯 Falta pouco! Apenas ${Utils.fmtBRL(g.target - g.saved)} para alcançarem a meta "${g.title}". Vocês conseguem!`);
+        } else if (progress >= 100) {
+          alerts.push(`🎉 Parabéns! Vocês atingiram a meta "${g.title}". Hora de comemorar!`);
+        }
+      });
+    }
+
+    // 5. ATIVIDADE RECENTE (Auditoria em Tempo Real)
+    if (state.audit && state.audit.length > 0) {
+      const now = new Date();
+      // Filtra apenas eventos das últimas 24 horas e pega os 4 mais recentes
+      const recentes = state.audit
+        .filter(a => (now - new Date(a.timestamp)) < 24 * 60 * 60 * 1000)
+        .slice(0, 4);
+
+      recentes.forEach(a => {
+        // Pega apenas o primeiro nome da pessoa para o letreiro ficar enxuto
+        const nome = a.userName ? a.userName.split(' ')[0] : 'Alguém';
+        
+        if (a.entity === 'transaction') {
+          if (a.action === 'create' && a.after) {
+            const tipoStr = a.after.type === 'receita' ? 'uma receita' : 'um gasto';
+            alerts.push(`📝 Atividade: ${nome} acabou de lançar ${tipoStr} de ${Utils.fmtBRL(a.after.amount)} em ${a.after.category}.`);
+          } else if (a.action === 'delete' && a.before) {
+            alerts.push(`🗑️ Atividade: ${nome} excluiu o lançamento "${a.before.description}".`);
+          } else if (a.action === 'update' && a.after) {
+            alerts.push(`🔄 Atividade: ${nome} atualizou o lançamento "${a.after.description || (a.before && a.before.description)}".`);
+          }
+        } else if (a.action === 'delete_group') {
+            alerts.push(`🗑️ Atividade: ${nome} excluiu um parcelamento inteiro.`);
+        } else if (a.entity === 'settings') {
+           alerts.push(`⚙️ Atividade: ${nome} atualizou os ajustes do sistema.`);
+        }
+      });
+    }
+
+    // Fallbacks (Caso não tenha alertas pendentes nem atividades nas últimas 24h)
+    if (alerts.length === 0) {
+      alerts.push('✨ Tudo sob controle! O balanço financeiro está saudável.');
+      alerts.push('💡 Dica da IA: Registrar os gastos na hora em que acontecem evita "furos" no orçamento.');
+    }
+
+    return alerts;
+  }
+
+  function startAlertCarousel() {
+    const alerts = generatePredictiveAlerts();
+    const textEl = el('#ai-alert-text');
+    if (!textEl) return;
+    
+    let idx = 0;
+    if (alertInterval) clearInterval(alertInterval);
+
+    const updateText = () => {
+      textEl.style.opacity = 0; // Inicia o fade out
+      setTimeout(() => {
+        textEl.textContent = alerts[idx];
+        textEl.style.opacity = 1; // Inicia o fade in
+        idx = (idx + 1) % alerts.length;
+      }, 500); // Tempo para o fade out completar antes de trocar o texto
+    };
+    
+    updateText(); // Roda a primeira vez na hora
+    if (alerts.length > 1) {
+      alertInterval = setInterval(updateText, 7000); // Troca a cada 7 segundos
     }
   }
 
