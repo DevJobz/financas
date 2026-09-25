@@ -50,6 +50,9 @@ const App = (() => {
       state.filterMonth = state.months.length ? state.months[state.months.length - 1].key : Utils.currentMonthKey();
       renderView();
       startPolling();
+      
+      // Checa se deve abrir a tela de resumo do mês (Wrapped)
+      checkMonthlyWrapped(); 
     } catch (e) {
       showToast(e.message, 'danger');
     }
@@ -980,6 +983,13 @@ const App = (() => {
           }
         </style>
       </section>
+
+      <!-- BOTÃO MANUAL DO RESUMO (WRAPPED) -->
+      <div style="text-align: center; margin-bottom: 16px;">
+        <button class="btn btn-ghost" onclick="App.openMonthWrapped()" style="background: var(--surface-sunken); border: 1px dashed var(--teal-400); color: var(--teal-900); border-radius: 999px; padding: 6px 16px; font-size: 13px;">
+          <i class="ti ti-gift" style="color: var(--coral-600); font-size: 16px; margin-right: 4px;"></i> Ver Resumo Fechado do Mês Passado
+        </button>
+      </div>
 
       <!-- 3 CARDS ESTILO PLANILHA: ENTRADAS TOTAIS | DESPESAS | SALDO RESTANTE -->
       <section class="metrics-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
@@ -3188,6 +3198,153 @@ function setCurrentChatId(id) {
     }
   }
 
+  // ---------- FECHAMENTO DE MÊS GAMIFICADO (WRAPPED) ----------
+
+  function checkMonthlyWrapped() {
+    const now = new Date();
+    // Exibe automaticamente se estivermos entre o dia 1 e 5 do mês
+    if (now.getDate() <= 5) {
+      let prevDate = new Date();
+      prevDate.setMonth(prevDate.getMonth() - 1);
+      const targetMonthKey = prevDate.toISOString().slice(0, 7);
+      
+      // Checa se ESTE usuário já viu o resumo DESTE mês
+      const cacheKey = `wrapped_seen_${state.user.id}_${targetMonthKey}`;
+      if (!localStorage.getItem(cacheKey)) {
+        openMonthWrapped(targetMonthKey);
+        localStorage.setItem(cacheKey, 'true');
+      }
+    }
+  }
+
+  function openMonthWrapped(targetKey = null) {
+    // Se não passar o mês, pega o mês anterior ao atual por padrão
+    if (!targetKey) {
+      let d = new Date();
+      d.setMonth(d.getMonth() - 1);
+      targetKey = d.toISOString().slice(0, 7);
+    }
+
+    const monthData = state.months.find(m => m.key === targetKey);
+    if (!monthData) {
+      showToast('Ainda não há dados suficientes do mês anterior para gerar o resumo.', 'warning');
+      return;
+    }
+
+    // Pega o mês RETRASADO para base de comparação
+    let prevDate = new Date(targetKey + '-01T12:00:00');
+    prevDate.setMonth(prevDate.getMonth() - 1);
+    const prevKey = prevDate.toISOString().slice(0, 7);
+    const prevMonthData = state.months.find(m => m.key === prevKey) || { gastos: 0, receitas: 0, saldoInicial: 0, byPerson: {} };
+
+    // --- CÁLCULOS DO WRAPPED ---
+    const diffGastos = monthData.gastos - prevMonthData.gastos;
+    const pctGastos = prevMonthData.gastos > 0 ? (diffGastos / prevMonthData.gastos) * 100 : 0;
+    
+    // Encontrar o maior ralo de dinheiro (ignorando transferências/cartões se houver)
+    const cats = Object.entries(monthData.byCategory || {}).sort((a, b) => b[1] - a[1]);
+    const topCat = cats.length > 0 ? cats[0] : null;
+
+    // Calcular quem gastou mais
+    let topSpender = { name: 'Ninguém', val: 0 };
+    getPeople().forEach(p => {
+      const gasto = monthData.byPerson[p.id] || 0;
+      if (gasto > topSpender.val) topSpender = { name: p.name, val: gasto };
+    });
+
+    // Metas
+    let metasHtml = '';
+    const goals = (state.records || []).filter(r => r.type === 'goal');
+    if (goals.length > 0) {
+      metasHtml = `
+        <div style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 16px; margin-bottom: 16px;">
+          <h3 style="font-size: 14px; margin-bottom: 10px; color: var(--teal-200);"><i class="ti ti-target"></i> Nossas Metas</h3>
+          ${goals.map(g => {
+            const pct = Math.min(100, (g.saved / g.target) * 100).toFixed(1);
+            return `<div style="margin-bottom: 8px;">
+                      <div style="display:flex; justify-content:space-between; font-size: 13px; margin-bottom: 4px;">
+                        <span>${g.title}</span> <strong>${pct}%</strong>
+                      </div>
+                      <div class="progress-bar" style="background: rgba(255,255,255,0.2); height: 6px;">
+                        <div class="progress-fill" style="width: ${pct}%; background: var(--teal-300);"></div>
+                      </div>
+                    </div>`;
+          }).join('')}
+        </div>`;
+    }
+
+    // --- MONTAGEM DA TELA (Estilo Dark Premium) ---
+    el('#modal-root').innerHTML = `
+      <div class="modal-overlay" id="modal-overlay" style="background: rgba(0,0,0,0.85); backdrop-filter: blur(4px);">
+        <div class="modal-sheet" style="background: linear-gradient(145deg, var(--teal-900), #083b2e); color: white; border: 1px solid var(--teal-700); max-width: 450px; overflow-y: auto; max-height: 90vh;">
+          
+          <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.1);">
+            <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 2px; color: var(--teal-300);">Resumo Fechado</div>
+            <button class="icon-btn" id="modal-close" style="color: white; background: rgba(255,255,255,0.1);"><i class="ti ti-x"></i></button>
+          </div>
+
+          <div style="text-align: center; margin: 24px 0;">
+            <i class="ti ti-calendar-check" style="font-size: 48px; color: var(--teal-300); margin-bottom: 16px;"></i>
+            <h2 style="font-size: 28px; font-weight: 800; margin-bottom: 8px;">Adeus, ${Utils.monthLabel(targetKey).split(' ')[0]}!</h2>
+            <p style="font-size: 15px; color: var(--teal-100); opacity: 0.9; line-height: 1.5;">Aqui está o resumo do nosso mês.<br>Vamos ver como nos saímos juntos.</p>
+          </div>
+
+          <div style="background: rgba(0,0,0,0.2); border-radius: 12px; padding: 16px; margin-bottom: 16px;">
+            <div style="font-size: 13px; color: var(--teal-200); margin-bottom: 4px;">Evolução do Caixa Geral</div>
+            <div style="display: flex; align-items: flex-end; justify-content: space-between;">
+              <div>
+                <span style="font-size: 11px; opacity: 0.7;">Começamos com</span><br>
+                <span style="font-size: 16px; font-weight: 600;">${Utils.fmtBRL(monthData.saldoInicial)}</span>
+              </div>
+              <i class="ti ti-arrow-right" style="color: var(--teal-500); font-size: 20px; margin-bottom: 4px;"></i>
+              <div style="text-align: right;">
+                <span style="font-size: 11px; opacity: 0.7;">Terminamos com</span><br>
+                <span style="font-size: 20px; font-weight: 800; color: ${monthData.saldoFinal >= 0 ? '#4ade80' : '#f87171'};">${Utils.fmtBRL(monthData.saldoFinal)}</span>
+              </div>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px;">
+            <div style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 16px;">
+              <div style="font-size: 24px; margin-bottom: 8px;">💸</div>
+              <div style="font-size: 12px; color: var(--teal-200);">Comparativo</div>
+              <div style="font-size: 14px; font-weight: 600; margin-top: 4px;">
+                Gastamos ${pctGastos > 0 ? `<span style="color:#f87171;">${pctGastos.toFixed(0)}% a mais</span>` : `<span style="color:#4ade80;">${Math.abs(pctGastos).toFixed(0)}% a menos</span>`} que no mês retrasado.
+              </div>
+            </div>
+            
+            <div style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 16px;">
+              <div style="font-size: 24px; margin-bottom: 8px;">🔥</div>
+              <div style="font-size: 12px; color: var(--teal-200);">Maior Ralo</div>
+              <div style="font-size: 14px; font-weight: 600; margin-top: 4px;">
+                ${topCat ? `${topCat[0]}<br><span style="font-size:12px; font-weight:400; opacity:0.8;">(${Utils.fmtBRL(topCat[1])})</span>` : 'Nenhum gasto registrado.'}
+              </div>
+            </div>
+          </div>
+
+          ${metasHtml}
+
+          <div style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 16px; margin-bottom: 24px; display: flex; align-items: center; gap: 12px;">
+            <div style="font-size: 32px;">🏆</div>
+            <div>
+              <div style="font-size: 12px; color: var(--teal-200);">Top Spender (Quem gastou mais)</div>
+              <div style="font-size: 15px; font-weight: 600;">${topSpender.name} com ${Utils.fmtBRL(topSpender.val)}</div>
+            </div>
+          </div>
+
+          <button class="btn btn-primary" id="btn-fechar-wrapped" style="width: 100%; height: 48px; font-size: 16px; background: white; color: var(--teal-900); border: none;">
+            Iniciando um novo mês! 🚀
+          </button>
+
+        </div>
+      </div>
+    `;
+
+    el('#modal-close').addEventListener('click', closeModal);
+    el('#btn-fechar-wrapped').addEventListener('click', closeModal);
+    el('#modal-overlay').addEventListener('click', (e) => { if (e.target.id === 'modal-overlay') closeModal(); });
+  }
+
   return { 
     init, 
     changeDashMonth, 
@@ -3211,7 +3368,8 @@ function setCurrentChatId(id) {
     openTripPlaceModal,
     deleteTripPlace,
     openGoalModal,
-    openSubModal
+    openSubModal,
+    openMonthWrapped // ADICIONE ESTA LINHA AQUI
   };
 })();
 
