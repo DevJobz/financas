@@ -1236,20 +1236,70 @@ const App = (() => {
   function renderLancamentosRows(list) {
     if (state.filterSort !== 'category') return list.map(rowTransacao).join('');
 
-    // 1. Calcular totais por categoria antes de renderizar
+    // --- 1. LÓGICA DE COMPARAÇÃO (MoM) ---
+    // Descobre o mês anterior com base no filtro atual
+    let prevDate = new Date(state.filterMonth + '-01T12:00:00');
+    prevDate.setMonth(prevDate.getMonth() - 1);
+    const prevMonthKey = prevDate.toISOString().slice(0, 7);
+
+    // Puxa os dados do mês anterior e aplica EXATAMENTE os mesmos filtros da tela atual
+    const prevMonthData = state.months.find(m => m.key === prevMonthKey) || { items: [] };
+    const prevList = prevMonthData.items
+      .filter(t => state.filterPerson === 'todos' || t.paidBy === state.filterPerson)
+      .filter(t => state.filterType === 'todos' || t.type === state.filterType)
+      .filter(t => state.filterStatus === 'todos' || (state.filterStatus === 'ok' ? t.status === 'ok' : t.status !== 'ok'));
+
+    // --- 2. CALCULA TOTAIS DO MÊS ATUAL ---
     const catTotals = {};
     list.forEach(t => {
       const cat = t.category || 'Sem categoria';
       if (!catTotals[cat]) catTotals[cat] = { total: 0, byPerson: {} };
-      
-      // Define o sinal (receita = positivo, gasto = negativo) para fechar o caixa líquido da categoria
       const val = t.type === 'receita' ? t.amount : -t.amount;
       catTotals[cat].total += val;
-      
       if (!catTotals[cat].byPerson[t.paidBy]) catTotals[cat].byPerson[t.paidBy] = 0;
       catTotals[cat].byPerson[t.paidBy] += val;
     });
 
+    // --- 3. CALCULA TOTAIS DO MÊS ANTERIOR (Para comparar) ---
+    const prevCatTotals = {};
+    prevList.forEach(t => {
+      const cat = t.category || 'Sem categoria';
+      if (!prevCatTotals[cat]) prevCatTotals[cat] = { total: 0, byPerson: {} };
+      const val = t.type === 'receita' ? t.amount : -t.amount;
+      prevCatTotals[cat].total += val;
+      if (!prevCatTotals[cat].byPerson[t.paidBy]) prevCatTotals[cat].byPerson[t.paidBy] = 0;
+      prevCatTotals[cat].byPerson[t.paidBy] += val;
+    });
+
+    // Função interna para desenhar a UI do comparativo
+    function getMoMHtml(currNet, prevNet) {
+      if (!prevNet && !currNet) return ''; 
+      if (!prevNet && currNet) return `<span style="font-size: 10px; font-weight: 600; color: var(--teal-600); margin-left: 6px; padding: 2px 6px; background: var(--surface); border-radius: 4px; border: 1px dashed var(--teal-300);">NOVO</span>`;
+      
+      const absCurr = Math.abs(currNet);
+      const absPrev = Math.abs(prevNet);
+      
+      const pct = ((absCurr - absPrev) / absPrev) * 100;
+      const algebraicDiff = currNet - prevNet;
+      
+      // Lógica Financeira: Diferença Algébrica positiva = Mais receita OU Menos gasto -> Verde (Bom).
+      const isGood = algebraicDiff > 0;
+      const color = isGood ? 'var(--teal-600)' : 'var(--coral-600)';
+      const bgMix = isGood ? 'var(--teal-100)' : 'var(--coral-100)';
+      const icon = pct > 0 ? 'ti-trending-up' : (pct < 0 ? 'ti-trending-down' : 'ti-minus');
+      const signLabel = pct > 0 ? '+' : '';
+
+      return `
+        <span style="font-size: 10px; color: var(--ink-faint); margin-left: 6px; letter-spacing: -0.2px;" title="Total do mês anterior">
+           (Ant: ${Utils.fmtBRL(absPrev)})
+        </span>
+        <span style="font-size: 10px; font-weight: 700; color: ${color}; display: inline-flex; align-items: center; gap: 2px; background: ${bgMix}; padding: 2px 6px; border-radius: 6px; margin-left: 6px;">
+            <i class="ti ${icon}" style="font-size: 11px;"></i> ${signLabel}${pct.toFixed(1).replace('.', ',')}%
+        </span>
+      `;
+    }
+
+    // --- 4. RENDERIZAÇÃO VISUAL ---
     let html = '';
     let lastCategory = null;
     
@@ -1257,39 +1307,53 @@ const App = (() => {
       if (t.category !== lastCategory) {
         const cat = t.category || 'Sem categoria';
         const totals = catTotals[cat];
+        const prevTotals = prevCatTotals[cat] || { total: 0, byPerson: {} };
+        
         const isPositive = totals.total >= 0;
         const sign = isPositive ? '+' : '−';
         const colorClass = isPositive ? 'positive' : 'negative';
         const formattedTotal = Utils.fmtBRL(Math.abs(totals.total));
+        
+        // Gera o comparativo do Total da Categoria
+        const moMTotalHtml = getMoMHtml(totals.total, prevTotals.total);
 
         let detailsHtml = '';
-        // Mostrar divisão individual APENAS se o filtro estiver em "todos"
         if (state.filterPerson === 'todos' && Object.keys(totals.byPerson).length > 0) {
           const peopleInfo = getPeople().map(p => {
             const val = totals.byPerson[p.id];
-            if (val === undefined) return ''; // Ignora quem não teve lançamento nesta categoria
+            if (val === undefined) return ''; 
+            
             const vSign = val >= 0 ? '+' : '−';
+            const pPrevVal = prevTotals.byPerson[p.id] || 0;
+            
+            // Gera o comparativo Individual (Pessoa x Pessoa no mês anterior)
+            const moMPersonHtml = getMoMHtml(val, pPrevVal);
+
             return `<span style="font-size: 11px; font-weight: 500; color: var(--ink-faint); margin-left: 12px; display: inline-flex; align-items: center; gap: 4px;">
                       <span class="dot" style="background:${p.color}; width:8px; height:8px; margin: 0;"></span>
                       ${p.name}: <span class="${val >= 0 ? 'positive' : 'negative'}">${vSign} ${Utils.fmtBRL(Math.abs(val))}</span>
+                      ${moMPersonHtml}
                     </span>`;
           }).join('');
           
           if (peopleInfo) {
-              detailsHtml = `<div style="display:flex; align-items:center; border-right: 1px solid var(--line); padding-right: 12px; margin-right: 12px;">${peopleInfo}</div>`;
+              detailsHtml = `<div style="display:flex; align-items:center; border-right: 1px solid var(--line); padding-right: 12px; margin-right: 12px; flex-wrap: wrap; gap: 4px;">${peopleInfo}</div>`;
           }
         }
 
         html += `
           <tr class="category-group-row">
             <td colspan="8" style="padding: 0;">
-              <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; background: var(--surface-sunken); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);">
+              <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: var(--surface-sunken); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); flex-wrap: wrap; gap: 8px;">
                 <strong style="color: var(--teal-900); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">${cat}</strong>
-                <div style="display: flex; align-items: center;">
+                <div style="display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end;">
                   ${detailsHtml}
-                  <span class="num ${colorClass}" style="font-size: 13px; font-weight: 700;">
-                    ${sign} ${formattedTotal}
-                  </span>
+                  <div style="display: flex; align-items: center;">
+                    <span class="num ${colorClass}" style="font-size: 14px; font-weight: 700;">
+                      ${sign} ${formattedTotal}
+                    </span>
+                    ${moMTotalHtml}
+                  </div>
                 </div>
               </div>
             </td>
